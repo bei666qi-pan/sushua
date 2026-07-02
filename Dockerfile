@@ -8,7 +8,9 @@ RUN sed -i 's#https\?://dl-cdn.alpinelinux.org#https://mirrors.aliyun.com#g' /et
   && apk add --no-cache python3 make g++
 RUN npm config set registry https://registry.npmmirror.com
 COPY package.json package-lock.json ./
-RUN npm ci
+# Coolify 会把运行时 env(含 NODE_ENV=production)注入为 build ARG,
+# 显式 --include=dev 保证 typescript/tailwind 等构建依赖始终安装
+RUN npm ci --include=dev
 
 FROM ${NODE_IMAGE} AS build
 WORKDIR /app
