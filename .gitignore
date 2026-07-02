@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+dist/
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+.env.*
+*.local
+.DS_Store
+npm-debug.log*
+部署凭证*
+credentials*
