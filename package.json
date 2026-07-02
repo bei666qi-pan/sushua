@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "tsx test/breaker.test.ts"
+    "test": "tsx test/breaker.test.ts && tsx test/parser.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.2.0",

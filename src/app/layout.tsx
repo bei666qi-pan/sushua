@@ -1,10 +1,13 @@
 import type { Metadata, Viewport } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "速刷 — 期末题库,上传即刷",
   description: "上传 PDF / Word / TXT 题库,自动切题。速刷判分、速记背题、错题重刷,配 AI 解析。",
+  // favicon.ico / icon.png / apple-icon.png 用 Next.js App Router 文件约定,自动生成
+  manifest: "/manifest.webmanifest",
 };
 
 export const viewport: Viewport = {
@@ -19,7 +22,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-screen flex flex-col">
         <header className="sticky top-0 z-40 border-b border-line bg-paper/90 backdrop-blur">
           <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between px-4 sm:px-6">
-            <Link href="/" className="flex items-baseline gap-2">
+            <Link href="/" className="flex items-center gap-2">
+              <Image src="/logo.png" alt="速刷" width={28} height={28} className="rounded-lg" priority />
               <span className="font-display text-xl font-bold tracking-wide">速刷</span>
               <span className="hidden text-xs text-ink-faint sm:inline">期末题库 · 上传即刷</span>
             </Link>
