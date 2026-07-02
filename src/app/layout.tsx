@@ -21,7 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="zh-CN">
       <body className="min-h-screen flex flex-col">
         <header className="sticky top-0 z-40 border-b border-line bg-paper/90 backdrop-blur">
-          <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between px-4 sm:px-6">
+          <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
             <Link href="/" className="flex items-center gap-2">
               <Image src="/logo.png" alt="速刷" width={28} height={28} className="rounded-lg" priority />
               <span className="font-display text-xl font-bold tracking-wide">速刷</span>
@@ -37,7 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </header>
         <main className="flex-1">{children}</main>
         <footer className="border-t border-line py-6">
-          <div className="mx-auto w-full max-w-5xl px-4 text-xs text-ink-faint sm:px-6">
+          <div className="mx-auto w-full max-w-6xl px-4 text-xs text-ink-faint sm:px-6">
             速刷 · 数据仅用于刷题,请勿上传涉密内容
           </div>
         </footer>

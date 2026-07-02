@@ -7,6 +7,8 @@ export interface DraftQuestion {
   /** single: "A"; multiple: "ABD"; judge: "对"/"错"; fill/short: 文本答案 */
   answer: string;
   explanation?: string;
+  /** 章节标题,如"第一章 绪论"。规则解析自动识别,可在确认页手动修改 */
+  chapter?: string;
 }
 
 export interface Question extends DraftQuestion {

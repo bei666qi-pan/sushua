@@ -94,6 +94,21 @@ function normalize(raw: string): string {
     .join("\n");
 }
 
+// ---------- 章节标题(如"第一章 绪论") ----------
+
+/** 只认"第X章/节/部分/篇/讲"或"Chapter N"/"Unit N"这类明确的章节标题写法 */
+/** \b 在汉字后不生效(汉字非 \w),中文分支不加 \b;英文分支保留避免误匹配 "Chapters"/"Units" */
+const CHAPTER_RE = /^\s*(?:第\s*[一二三四五六七八九十百千0-9]+\s*[章节部分篇讲]|Chapter\s*\d+\b|Unit\s*\d+\b)/i;
+
+function chapterHint(line: string): string | null {
+  const t = line.trim();
+  if (!t || t.length > 60 || t.length < 2) return null;
+  if (!CHAPTER_RE.test(t)) return null;
+  // 排除 "第3题""第12题" 这类题号写法(章节标题不会跟"题"字)
+  if (/^第\s*[一二三四五六七八九十百千0-9]+\s*题/.test(t)) return null;
+  return t.replace(/[::]\s*$/, "");
+}
+
 // ---------- 章节标题(题型提示) ----------
 
 /**
@@ -143,7 +158,7 @@ function parseAnswerToken(s: string, hasOptions: boolean): { value: string; kind
 
 // ---------- 分块 ----------
 
-interface Block { hint: QType | null; lines: string[] }
+interface Block { hint: QType | null; chapter: string; lines: string[] }
 
 function looksLikeQuestion(rest: string): boolean {
   const t = rest.trim();
@@ -160,11 +175,18 @@ function splitBlocks(text: string): { blocks: Block[]; preamble: string[] } {
   const preamble: string[] = [];
   let cur: Block | null = null;
   let hint: QType | null = null;
+  let chapter = "";
   let lastNum: number | null = null;
   let sectionReset = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    const ch = chapterHint(line);
+    if (ch) {
+      chapter = ch;
+      sectionReset = true;
+      continue;
+    }
     const h = sectionHint(line);
     if (h) {
       hint = h;
@@ -193,7 +215,7 @@ function splitBlocks(text: string): { blocks: Block[]; preamble: string[] } {
           : seqOk || looksLikeQuestion(rest) || nextIsStructure);
       if (accept) {
         if (cur) blocks.push(cur);
-        cur = { hint, lines: [rest] };
+        cur = { hint, chapter, lines: [rest] };
         lastNum = Number.isFinite(num) ? num : lastNum;
         sectionReset = false;
         continue;
@@ -301,7 +323,14 @@ function parseBlock(block: Block): { q: DraftQuestion | null; confident: boolean
     }
   }
 
-  const q: DraftQuestion = { type, stem, options, answer, explanation: explanation.trim() || undefined };
+  const q: DraftQuestion = {
+    type,
+    stem,
+    options,
+    answer,
+    explanation: explanation.trim() || undefined,
+    chapter: block.chapter || undefined,
+  };
 
   // 置信度:结构完整 + 答案匹配题型;不确定的进 AI 兜底,绝不静默吞
   let confident = !suspicious;

@@ -13,7 +13,7 @@ const STEPS = [
 export default function HomePage() {
   const banks = listPublicBanks();
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 sm:px-6">
+    <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8">
       {/* Hero:左对齐,衬线大标题 */}
       <section className="pb-10 pt-12 sm:pb-14 sm:pt-20">
         <h1 className="font-display max-w-2xl text-4xl font-bold leading-tight sm:text-5xl">

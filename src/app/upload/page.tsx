@@ -103,7 +103,7 @@ export default function UploadPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
+    <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 sm:py-12 lg:px-8">
       {/* 步骤条 */}
       <div className="mb-8 flex items-center gap-2 text-sm">
         {["上传文件", "确认题目", "开刷"].map((label, i) => {
@@ -247,6 +247,12 @@ export default function UploadPage() {
                     删除
                   </button>
                 </div>
+                <input
+                  value={q.chapter ?? ""}
+                  onChange={(e) => patchQ(i, { chapter: e.target.value })}
+                  placeholder="所属章节(可选,如「第一章 绪论」)"
+                  className="mt-2 w-full rounded-lg border border-dashed border-line bg-paper px-2.5 py-1 text-xs text-ink-soft outline-none focus:border-pine focus:text-ink"
+                />
                 <textarea
                   value={q.stem}
                   onChange={(e) => patchQ(i, { stem: e.target.value })}

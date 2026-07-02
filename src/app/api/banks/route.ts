@@ -32,6 +32,7 @@ export async function POST(req: Request) {
       options: (Array.isArray(q.options) ? q.options : []).map((o) => String(o).slice(0, 500)).slice(0, 8),
       answer: String(q.answer ?? "").slice(0, 2000),
       explanation: q.explanation ? String(q.explanation).slice(0, 4000) : undefined,
+      chapter: q.chapter ? String(q.chapter).trim().slice(0, 120) : undefined,
     }));
   if (clean.length === 0) return NextResponse.json({ error: "没有有效题目" }, { status: 400 });
 

@@ -373,6 +373,41 @@ A.20 B.21 C.22 D.23
   assert("两道真题保留", questions.filter((q) => q.options.length === 4).length === 2);
 }
 
+console.log("26. 章节识别");
+{
+  const { questions } = parseText(`第一章 计算机基础
+一、单选题
+1.1KB等于多少字节?
+A.1000B.1024C.512D.2048
+答案:B
+
+第二章 操作系统
+一、判断题
+1.进程只能包含一个线程。
+答案:错`);
+  assert("切出 2 题", questions.length === 2, `got ${questions.length}`);
+  assert("题1 章节正确", questions[0]?.chapter === "第一章 计算机基础", questions[0]?.chapter);
+  assert("题2 章节切换正确", questions[1]?.chapter === "第二章 操作系统", questions[1]?.chapter);
+}
+{
+  const { questions } = parseText(`Chapter 3 Networking
+1.TCP is connection-oriented.
+答案:对`);
+  assert("英文章节标题也识别", questions[0]?.chapter === "Chapter 3 Networking", questions[0]?.chapter);
+}
+{
+  const { questions } = parseText(`1.没有章节标题时不设置chapter
+A.aB.bC.cD.d
+答案:A`);
+  assert("无章节标题时 chapter 为空", questions[0]?.chapter === undefined, questions[0]?.chapter);
+}
+{
+  const { questions } = parseText(`1.第3题这种写法不是章节标题
+A.aB.bC.cD.d
+答案:A`);
+  assert("题干含'第3题'不被误判为章节", questions.length === 1 && questions[0]?.stem.includes("第3题"), JSON.stringify(questions[0]));
+}
+
 if (failed) {
   console.error(`\n${failed} 项断言失败`);
   process.exit(1);

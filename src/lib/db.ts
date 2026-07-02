@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS questions (
   options_json TEXT NOT NULL DEFAULT '[]',
   answer TEXT NOT NULL DEFAULT '',
   explanation TEXT NOT NULL DEFAULT '',
-  sort INTEGER NOT NULL DEFAULT 0
+  sort INTEGER NOT NULL DEFAULT 0,
+  chapter TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_questions_bank ON questions(bank_id, sort);
 CREATE TABLE IF NOT EXISTS ai_explanations (
@@ -51,10 +52,19 @@ export function getDb(): Database.Database {
     const db = new Database(path.join(dir, "sushua.db"));
     db.pragma("journal_mode = WAL");
     db.exec(SCHEMA);
+    migrate(db);
     seedDemo(db);
     globalThis.__sushuaDb = db;
   }
   return globalThis.__sushuaDb;
+}
+
+/** 已上线的库缺 chapter 列时补上(CREATE TABLE IF NOT EXISTS 对已存在的表不会加新列) */
+function migrate(db: Database.Database) {
+  const cols = db.prepare("PRAGMA table_info(questions)").all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "chapter")) {
+    db.exec("ALTER TABLE questions ADD COLUMN chapter TEXT NOT NULL DEFAULT ''");
+  }
 }
 
 /** 首次启动内置一份公开示例题库,首页广场不空,新手可直接体验 */
@@ -85,10 +95,10 @@ export function createBank(title: string, visibility: Visibility, questions: Dra
       .prepare("INSERT INTO banks (slug, title, visibility, owner_key_hash) VALUES (?,?,?,?)")
       .run(slug, title, visibility, sha256(ownerKey));
     const ins = db.prepare(
-      "INSERT INTO questions (bank_id, type, stem, options_json, answer, explanation, sort) VALUES (?,?,?,?,?,?,?)"
+      "INSERT INTO questions (bank_id, type, stem, options_json, answer, explanation, sort, chapter) VALUES (?,?,?,?,?,?,?,?)"
     );
     questions.forEach((q, i) => {
-      ins.run(info.lastInsertRowid, q.type, q.stem, JSON.stringify(q.options ?? []), q.answer ?? "", q.explanation ?? "", i);
+      ins.run(info.lastInsertRowid, q.type, q.stem, JSON.stringify(q.options ?? []), q.answer ?? "", q.explanation ?? "", i, q.chapter ?? "");
     });
   });
   tx();
@@ -111,9 +121,9 @@ export function isOwner(bank: Bank, ownerKey: string | null): boolean {
 
 export function getQuestions(bankId: number): Question[] {
   const rows = getDb()
-    .prepare("SELECT id, type, stem, options_json, answer, explanation, sort FROM questions WHERE bank_id = ? ORDER BY sort")
+    .prepare("SELECT id, type, stem, options_json, answer, explanation, sort, chapter FROM questions WHERE bank_id = ? ORDER BY sort")
     .all(bankId) as Array<{
-    id: number; type: Question["type"]; stem: string; options_json: string; answer: string; explanation: string; sort: number;
+    id: number; type: Question["type"]; stem: string; options_json: string; answer: string; explanation: string; sort: number; chapter: string;
   }>;
   return rows.map((r) => ({
     id: r.id,
@@ -123,6 +133,7 @@ export function getQuestions(bankId: number): Question[] {
     answer: r.answer,
     explanation: r.explanation || undefined,
     sort: r.sort,
+    chapter: r.chapter || undefined,
   }));
 }
 
