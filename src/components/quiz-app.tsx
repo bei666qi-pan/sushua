@@ -107,11 +107,20 @@ export function QuizApp({ slug }: { slug: string }) {
     return m;
   }, [data]);
 
-  // 当前刷题序列(全部 or 只刷错题)
+  const [chapterFilter, setChapterFilter] = useState<string>("");
+  const chapters = useMemo(() => {
+    const set = new Set<string>();
+    data?.questions.forEach((q) => q.chapter && set.add(q.chapter));
+    return [...set];
+  }, [data]);
+
+  // 当前刷题序列(全部 or 只刷错题 · 可叠加章节筛选)
   const quizList = useMemo(() => {
     if (!prog) return [];
-    return prog.onlyWrong ? prog.order.filter((id) => prog.wrong.includes(id)) : prog.order;
-  }, [prog]);
+    let ids = prog.onlyWrong ? prog.order.filter((id) => prog.wrong.includes(id)) : prog.order;
+    if (chapterFilter) ids = ids.filter((id) => qById.get(id)?.chapter === chapterFilter);
+    return ids;
+  }, [prog, chapterFilter, qById]);
 
   const curId = quizList[Math.min(prog?.idx ?? 0, Math.max(quizList.length - 1, 0))];
   const curQ = curId !== undefined ? qById.get(curId) : undefined;
@@ -263,7 +272,7 @@ export function QuizApp({ slug }: { slug: string }) {
   const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/b/${slug}` : "";
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pb-16 sm:px-6">
+    <div className="mx-auto w-full max-w-5xl px-4 pb-16 sm:px-6 lg:px-8">
       {createdBanner && (
         <div className="mt-4 rounded-xl border border-pine/30 bg-pine-soft px-4 py-3 text-sm">
           <span className="font-medium text-pine">题库创建成功!</span> 管理凭证已存在本机浏览器。
@@ -412,6 +421,25 @@ export function QuizApp({ slug }: { slug: string }) {
                   只刷错题中 · 退出
                 </button>
               )}
+              {chapters.length > 0 && (
+                <select
+                  value={chapterFilter}
+                  onChange={(e) => {
+                    setChapterFilter(e.target.value);
+                    persist({ ...prog, idx: 0 });
+                  }}
+                  className={`rounded-lg border px-2.5 py-1 ${
+                    chapterFilter ? "border-pine bg-pine-soft text-pine" : "border-line-strong bg-card text-ink-soft"
+                  }`}
+                >
+                  <option value="">全部章节</option>
+                  {chapters.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
             <button
               onClick={() => {
@@ -468,28 +496,49 @@ export function QuizApp({ slug }: { slug: string }) {
       {/* ============ 速记 ============ */}
       {tab === "memo" && (
         <div className="fade-up pt-5">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-ink-soft">题目答案同屏,上下滑着背</p>
-            <button
-              onClick={() => setAnswersOnly((s) => !s)}
-              className={`rounded-lg border px-2.5 py-1 text-xs ${
-                answersOnly ? "border-pine bg-pine-soft text-pine" : "border-line-strong bg-card text-ink-soft"
-              }`}
-            >
-              {answersOnly ? "只看答案中" : "只看答案"}
-            </button>
+            <div className="flex items-center gap-2">
+              {chapters.length > 0 && (
+                <select
+                  value={chapterFilter}
+                  onChange={(e) => setChapterFilter(e.target.value)}
+                  className={`rounded-lg border px-2.5 py-1 text-xs ${
+                    chapterFilter ? "border-pine bg-pine-soft text-pine" : "border-line-strong bg-card text-ink-soft"
+                  }`}
+                >
+                  <option value="">全部章节</option>
+                  {chapters.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button
+                onClick={() => setAnswersOnly((s) => !s)}
+                className={`rounded-lg border px-2.5 py-1 text-xs ${
+                  answersOnly ? "border-pine bg-pine-soft text-pine" : "border-line-strong bg-card text-ink-soft"
+                }`}
+              >
+                {answersOnly ? "只看答案中" : "只看答案"}
+              </button>
+            </div>
           </div>
           <div className="mt-4 space-y-3">
-            {questions.slice(0, memoVisible).map((q, i) =>
-              answersOnly ? (
-                <div key={q.id} className="flex gap-3 rounded-lg border border-line bg-card px-3 py-2 text-sm">
-                  <span className="shrink-0 font-medium text-ink-faint">{i + 1}.</span>
-                  <span className="font-medium text-pine">{formatAnswer(q)}</span>
-                </div>
-              ) : (
-                <MemoCard key={q.id} q={q} index={i} />
-              )
-            )}
+            {questions
+              .filter((q) => !chapterFilter || q.chapter === chapterFilter)
+              .slice(0, memoVisible)
+              .map((q, i) =>
+                answersOnly ? (
+                  <div key={q.id} className="flex gap-3 rounded-lg border border-line bg-card px-3 py-2 text-sm">
+                    <span className="shrink-0 font-medium text-ink-faint">{i + 1}.</span>
+                    <span className="font-medium text-pine">{formatAnswer(q)}</span>
+                  </div>
+                ) : (
+                  <MemoCard key={q.id} q={q} index={i} />
+                )
+              )}
           </div>
           {memoVisible < questions.length && (
             <button
@@ -676,6 +725,7 @@ function QuestionCard(props: {
             <span className="ml-2">
               {index + 1} / {total}
             </span>
+            {q.chapter && <span className="ml-2 text-ink-faint">· {q.chapter}</span>}
           </span>
           <span className="hidden sm:inline">1-4 选答案 · ←→ 切题 · Enter 下一题</span>
         </div>
