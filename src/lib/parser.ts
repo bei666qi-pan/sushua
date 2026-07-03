@@ -21,8 +21,9 @@ const FULL_TO_HALF: Record<string, string> = {
 
 // ---------- 行级正则 ----------
 
-/** 题号:1. / 1、 / 1) / (1) / 第1题,裸数字形式必须带分隔符(防误伤"2026年…") */
-const Q_START = /^\s*(?:第\s*(\d{1,3})\s*题\s*[..、、).::]?|[(]\s*(\d{1,3})\s*[)]\s*[..、、.::]?|(\d{1,3})\s*[..、、).::])\s*/;
+/** 题号:1. / 1、 / 1) / (1) / 第1题 / 0-1.(章节内相对编号,如"0-1." "1-23、"),裸数字形式必须带分隔符(防误伤"2026年…") */
+const Q_START =
+  /^\s*(?:第\s*(\d{1,3})\s*题\s*[..、、).::]?|[(]\s*(\d{1,3})\s*[)]\s*[..、、.::]?|\d{1,3}\s*-\s*(\d{1,3})\s*[..、、).::]|(\d{1,3})\s*[..、、).::])\s*/;
 const OPTION_RE = /^\s*\(?([A-F])[))..、、::]\s*(.+?)\s*$/;
 /** 答案行:答案/参考答案/正确答案/标准答案/【答案】/答:(裸"答"必须带冒号) */
 const ANSWER_RE = /^[\s ]*(?:【\s*(?:参考|正确|标准)?答案\s*】|(?:参考|正确|标准)?答案|答(?=\s*[::]))\s*[::]?\s*(.*)$/;
@@ -96,9 +97,9 @@ function normalize(raw: string): string {
 
 // ---------- 章节标题(如"第一章 绪论") ----------
 
-/** 只认"第X章/节/部分/篇/讲"或"Chapter N"/"Unit N"这类明确的章节标题写法 */
+/** 只认"第X章/节/部分/篇/讲"、"导论/绪论"类开篇标题,或"Chapter N"/"Unit N"这类明确的章节标题写法 */
 /** \b 在汉字后不生效(汉字非 \w),中文分支不加 \b;英文分支保留避免误匹配 "Chapters"/"Units" */
-const CHAPTER_RE = /^\s*(?:第\s*[一二三四五六七八九十百千0-9]+\s*[章节部分篇讲]|Chapter\s*\d+\b|Unit\s*\d+\b)/i;
+const CHAPTER_RE = /^\s*(?:第\s*[一二三四五六七八九十百千0-9]+\s*[章节部分篇讲]|导论|绪论|导言|引言|总论|Chapter\s*\d+\b|Unit\s*\d+\b)/i;
 
 function chapterHint(line: string): string | null {
   const t = line.trim();
@@ -107,6 +108,18 @@ function chapterHint(line: string): string | null {
   // 排除 "第3题""第12题" 这类题号写法(章节标题不会跟"题"字)
   if (/^第\s*[一二三四五六七八九十百千0-9]+\s*题/.test(t)) return null;
   return t.replace(/[::]\s*$/, "");
+}
+
+/** 章节标题紧跟的说明行,如"(本章单选题20道,多选题10道,合计30道)",纯元信息,直接丢弃,不并入任何题目 */
+function isChapterMeta(line: string): boolean {
+  const t = line.trim();
+  return /^[(（]\s*本[章节部分篇讲][^)）]{0,40}[)）]\s*$/.test(t);
+}
+
+/** 题库前言/说明区起始行,如"说明:""使用说明"。区内"1. 2. 3."式编号是说明条目,不是题目 */
+function isFrontMatterStart(line: string): boolean {
+  const t = line.trim();
+  return /^(?:使用)?说明\s*[::]?\s*$/.test(t) || /^(?:编者|编写)?(?:前言|凡例)\s*[::]?\s*$/.test(t);
 }
 
 // ---------- 章节标题(题型提示) ----------
@@ -178,6 +191,7 @@ function splitBlocks(text: string): { blocks: Block[]; preamble: string[] } {
   let chapter = "";
   let lastNum: number | null = null;
   let sectionReset = false;
+  let inFrontMatter = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -185,6 +199,16 @@ function splitBlocks(text: string): { blocks: Block[]; preamble: string[] } {
     if (ch) {
       chapter = ch;
       sectionReset = true;
+      inFrontMatter = false;
+      continue;
+    }
+    if (isChapterMeta(line)) continue;
+    if (isFrontMatterStart(line)) {
+      inFrontMatter = true;
+      continue;
+    }
+    if (inFrontMatter) {
+      if (line.trim()) preamble.push(line);
       continue;
     }
     const h = sectionHint(line);
@@ -195,7 +219,7 @@ function splitBlocks(text: string): { blocks: Block[]; preamble: string[] } {
     }
     const m = line.match(Q_START);
     if (m) {
-      const num = Number(m[1] ?? m[2] ?? m[3]);
+      const num = Number(m[1] ?? m[2] ?? m[3] ?? m[4]);
       const rest = line.replace(Q_START, "");
       // 下一非空行是答案/选项行 → 这一定是题干,不是答案要点
       let ni = i + 1;
@@ -239,8 +263,15 @@ function parseBlock(block: Block): { q: DraftQuestion | null; confident: boolean
   let suspicious = false; // 块内出现了"不该出现"的结构(第二个答案行/解析区里冒出选项),疑似吞了下一题
   let mode: "stem" | "options" | "answer" | "explain" = "stem";
 
-  for (const line of block.lines) {
+  for (let line of block.lines) {
     if (!line.trim()) continue;
+    // 题干开头紧跟无空格括号答案,如"(C)是科技发展的灵魂…":与选项行"(A)内容"同形,
+    // 但仍处于未见任何选项的题干阶段,大概率是嵌入式答案而非选项。补内部空格,
+    // 避开 OPTION_RE 误吞,后续走既有的题干内答案提取(PAREN_ANSWER)
+    if (mode === "stem" && optionLetters.length === 0) {
+      const glued = line.match(/^\s*[(（]([A-F]{1,6}|对|错|√|×|正确|错误)[)）](?=\S)/);
+      if (glued) line = line.replace(glued[0], `( ${glued[1]} )`);
+    }
     const ans = line.match(ANSWER_RE);
     const exp = line.match(EXPLAIN_RE);
     const opt = line.match(OPTION_RE);
@@ -273,6 +304,8 @@ function parseBlock(block: Block): { q: DraftQuestion | null; confident: boolean
   }
 
   let stem = stemLines.join("\n").trim();
+  // 题干尾部页码标注,如"【P2】""【P17-19】""【P3、4】",对刷题无意义,去除
+  stem = stem.replace(/\s*【\s*P\.?\s*\d+[\d\-—–、,，\s]*】\s*$/, "").trim();
   // 过短的"题干"(如文末答案表被切出的 "A")不是题,整块退给 AI
   if (!stem || stem.replace(/[\s..、、::()()]/g, "").length <= 2) return { q: null, confident: false };
 

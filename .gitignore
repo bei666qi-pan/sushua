@@ -2,6 +2,7 @@ node_modules/
 .next/
 out/
 dist/
+*.tsbuildinfo
 data/
 *.db
 *.db-journal

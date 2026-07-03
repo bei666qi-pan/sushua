@@ -408,6 +408,57 @@ A.aB.bC.cD.d
   assert("题干含'第3题'不被误判为章节", questions.length === 1 && questions[0]?.stem.includes("第3题"), JSON.stringify(questions[0]));
 }
 
+console.log("27. 章节相对编号「N-N.」+「导论」标题 + 说明区前言/章节说明行过滤");
+{
+  const { questions } = parseText(`内部材料 注意保存
+说明:
+1.本题库均为客观题。
+2.目录标题后括号数字为该章题目数量。
+
+导论 马克思主义中国化时代化的历史进程与理论成果
+(本章单选题1道,多选题1道,合计2道)
+
+0-1.(D)给中国送来了马克思列宁主义。【P2】
+A.鸦片战争
+B.新文化运动
+C.五四运动
+D.十月革命
+
+0-2.为什么推进马克思主义中国化时代化,是有以下原因( AC )。【P3、4】
+A.内在要求
+B.解决俄国问题
+C.客观需要
+D.曾犯教条主义错误
+
+第1章 毛泽东思想及其历史地位
+(本章单选题1道,多选题0道,合计1道)
+
+1-1.1917年俄国十月革命的胜利开辟了世界(A)的新时代。【P15】
+A.社会主义
+B.资本主义
+C.民族主义
+D.自由主义`);
+  assert("说明区编号条目不产生假题", questions.length === 3, `got ${questions.length}`);
+  assert("导论识别为章节标题", questions[0]?.chapter === "导论 马克思主义中国化时代化的历史进程与理论成果", questions[0]?.chapter);
+  assert("章节说明行未污染题干", !questions[1]?.stem.includes("本章"), questions[1]?.stem);
+  assert("多选题 N-N 编号正确切分且答案 AC", questions[1]?.type === "multiple" && questions[1]?.answer === "AC", JSON.stringify(questions[1]));
+  assert("章节切换到第1章", questions[2]?.chapter === "第1章 毛泽东思想及其历史地位", questions[2]?.chapter);
+  assert("页码标注【P2】已从题干去除", !questions[0]?.stem.includes("P2"), questions[0]?.stem);
+}
+
+console.log("28. 题干开头紧贴无空格括号答案,不被误判成选项");
+{
+  const { questions } = parseText(`8-16.(C)是科技发展的灵魂,是一个民族发展的不竭动力。【P243】
+A.人才
+B.专利
+C.自主创新
+D.工业化`);
+  const q = questions[0];
+  assert("未被 OPTION_RE 误吞,题目未丢失", questions.length === 1, `got ${questions.length}`);
+  assert("答案 C 且题干非空", q?.answer === "C" && (q?.stem.length ?? 0) > 5, JSON.stringify(q));
+  assert("4 个选项完整", q?.options.length === 4, JSON.stringify(q?.options));
+}
+
 if (failed) {
   console.error(`\n${failed} 项断言失败`);
   process.exit(1);

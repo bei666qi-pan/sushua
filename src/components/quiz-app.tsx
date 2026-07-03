@@ -113,6 +113,13 @@ export function QuizApp({ slug }: { slug: string }) {
     data?.questions.forEach((q) => q.chapter && set.add(q.chapter));
     return [...set];
   }, [data]);
+  const chapterCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    data?.questions.forEach((q) => {
+      if (q.chapter) m[q.chapter] = (m[q.chapter] ?? 0) + 1;
+    });
+    return m;
+  }, [data]);
 
   // 当前刷题序列(全部 or 只刷错题 · 可叠加章节筛选)
   const quizList = useMemo(() => {
@@ -422,23 +429,15 @@ export function QuizApp({ slug }: { slug: string }) {
                 </button>
               )}
               {chapters.length > 0 && (
-                <select
+                <ChapterSelect
+                  chapters={chapters}
+                  counts={chapterCounts}
                   value={chapterFilter}
-                  onChange={(e) => {
-                    setChapterFilter(e.target.value);
+                  onChange={(c) => {
+                    setChapterFilter(c);
                     persist({ ...prog, idx: 0 });
                   }}
-                  className={`rounded-lg border px-2.5 py-1 ${
-                    chapterFilter ? "border-pine bg-pine-soft text-pine" : "border-line-strong bg-card text-ink-soft"
-                  }`}
-                >
-                  <option value="">全部章节</option>
-                  {chapters.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
+                />
               )}
             </div>
             <button
@@ -500,20 +499,7 @@ export function QuizApp({ slug }: { slug: string }) {
             <p className="text-xs text-ink-soft">题目答案同屏,上下滑着背</p>
             <div className="flex items-center gap-2">
               {chapters.length > 0 && (
-                <select
-                  value={chapterFilter}
-                  onChange={(e) => setChapterFilter(e.target.value)}
-                  className={`rounded-lg border px-2.5 py-1 text-xs ${
-                    chapterFilter ? "border-pine bg-pine-soft text-pine" : "border-line-strong bg-card text-ink-soft"
-                  }`}
-                >
-                  <option value="">全部章节</option>
-                  {chapters.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
+                <ChapterSelect chapters={chapters} counts={chapterCounts} value={chapterFilter} onChange={setChapterFilter} />
               )}
               <button
                 onClick={() => setAnswersOnly((s) => !s)}
@@ -663,13 +649,95 @@ function formatAnswer(q: Question): string {
   return q.answer;
 }
 
+/** 章节选择:极简下拉,替代原生 select,同时用于速刷/速记两个 tab */
+function ChapterSelect({
+  chapters,
+  counts,
+  value,
+  onChange,
+}: {
+  chapters: string[];
+  counts: Record<string, number>;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`flex max-w-[42vw] items-center gap-1 rounded-lg border px-2.5 py-1 text-xs sm:max-w-[240px] ${
+          value ? "border-pine bg-pine-soft text-pine" : "border-line-strong bg-card text-ink-soft"
+        }`}
+      >
+        <span className="truncate">{value || "全部章节"}</span>
+        <svg width="9" height="9" viewBox="0 0 12 12" className={`shrink-0 transition-transform ${open ? "rotate-180" : ""}`}>
+          <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div className="fade-up absolute left-0 top-full z-40 mt-1.5 max-h-72 w-72 max-w-[85vw] overflow-y-auto rounded-xl border border-line bg-card p-1 shadow-pop">
+          <button
+            onClick={() => {
+              onChange("");
+              setOpen(false);
+            }}
+            className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+              !value ? "bg-pine-soft text-pine" : "hover:bg-paper"
+            }`}
+          >
+            <span>全部章节</span>
+            <span className="shrink-0 text-xs text-ink-faint">{total}</span>
+          </button>
+          {chapters.map((c) => (
+            <button
+              key={c}
+              onClick={() => {
+                onChange(c);
+                setOpen(false);
+              }}
+              className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                c === value ? "bg-pine-soft text-pine" : "hover:bg-paper"
+              }`}
+            >
+              <span className="truncate">{c}</span>
+              <span className="shrink-0 text-xs text-ink-faint">{counts[c] ?? 0}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** 速记卡片 */
 function MemoCard({ q, index }: { q: Question; index: number }) {
   return (
     <div className="rounded-xl border border-line bg-card p-4">
       <div className="text-sm leading-relaxed">
-        <span className="mr-1.5 rounded bg-pine-soft px-1.5 py-0.5 text-xs text-pine">{TYPE_LABEL[q.type]}</span>
-        <span className="mr-1 text-ink-faint">{index + 1}.</span>
+        <span className="mr-1.5 text-xs text-ink-faint">
+          {index + 1} · {TYPE_LABEL[q.type]}
+        </span>
         {q.stem}
       </div>
       {q.options.length > 0 && (
@@ -719,15 +787,18 @@ function QuestionCard(props: {
   return (
     <div className="fade-up mt-4">
       <div className="rounded-2xl border border-line bg-card p-5 shadow-card sm:p-6">
-        <div className="flex items-center justify-between text-xs text-ink-faint">
-          <span>
-            <span className="rounded bg-pine-soft px-1.5 py-0.5 text-pine">{TYPE_LABEL[q.type]}</span>
-            <span className="ml-2">
-              {index + 1} / {total}
-            </span>
-            {q.chapter && <span className="ml-2 text-ink-faint">· {q.chapter}</span>}
+        <div className="flex items-center gap-1.5 overflow-hidden text-xs text-ink-faint">
+          <span className="shrink-0 font-medium text-ink-soft">
+            {index + 1}/{total}
           </span>
-          <span className="hidden sm:inline">1-4 选答案 · ←→ 切题 · Enter 下一题</span>
+          <span className="shrink-0">·</span>
+          <span className="shrink-0">{TYPE_LABEL[q.type]}</span>
+          {q.chapter && (
+            <>
+              <span className="shrink-0">·</span>
+              <span className="truncate">{q.chapter}</span>
+            </>
+          )}
         </div>
         <div className="mt-3 text-base leading-relaxed sm:text-lg">{q.stem}</div>
 
