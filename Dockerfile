@@ -1,16 +1,14 @@
-# 国内构建规范:基础镜像走 daocloud,npm 走 npmmirror,不用 apt
-ARG NODE_IMAGE=docker.m.daocloud.io/library/node:20-alpine
+# 国内构建规范:基础镜像走 daocloud,npm 走 npmmirror
+# Node 24 内置 node:sqlite,无原生依赖 → 无需编译链,构建快且稳定
+ARG NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine
 
 FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
-# better-sqlite3 需要原生编译(国内拉不到 GitHub 预编译包),用 apk 装编译链,源换阿里云
-RUN sed -i 's#https\?://dl-cdn.alpinelinux.org#https://mirrors.aliyun.com#g' /etc/apk/repositories \
-  && apk add --no-cache python3 make g++
 RUN npm config set registry https://registry.npmmirror.com
 COPY package.json package-lock.json ./
 # Coolify 会把运行时 env(含 NODE_ENV=production)注入为 build ARG,
 # 显式 --include=dev 保证 typescript/tailwind 等构建依赖始终安装
-RUN npm ci --include=dev
+RUN npm ci --include=dev --no-audit --no-fund
 
 FROM ${NODE_IMAGE} AS build
 WORKDIR /app

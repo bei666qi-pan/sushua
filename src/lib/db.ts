@@ -1,9 +1,12 @@
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import fs from "fs";
 import path from "path";
 import { newSlug, sha256, newOwnerKey } from "./hash";
 import { DEMO_QUESTIONS } from "./demo-data";
 import type { Bank, Question, Visibility, DraftQuestion } from "./types";
+
+// 用 Node 内置 node:sqlite(Node ≥24 默认启用)替代 better-sqlite3:
+// 同一 SQLite 文件格式,数据无损;零原生依赖,容器构建不再需要编译链。
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS banks (
@@ -42,15 +45,15 @@ CREATE TABLE IF NOT EXISTS usage_log (
 
 declare global {
   // eslint-disable-next-line no-var
-  var __sushuaDb: Database.Database | undefined;
+  var __sushuaDb: DatabaseSync | undefined;
 }
 
-export function getDb(): Database.Database {
+export function getDb(): DatabaseSync {
   if (!globalThis.__sushuaDb) {
     const dir = process.env.DATA_DIR || path.join(process.cwd(), "data");
     fs.mkdirSync(dir, { recursive: true });
-    const db = new Database(path.join(dir, "sushua.db"));
-    db.pragma("journal_mode = WAL");
+    const db = new DatabaseSync(path.join(dir, "sushua.db"));
+    db.exec("PRAGMA journal_mode = WAL");
     db.exec(SCHEMA);
     migrate(db);
     seedDemo(db);
@@ -59,16 +62,28 @@ export function getDb(): Database.Database {
   return globalThis.__sushuaDb;
 }
 
+/** node:sqlite 没有 transaction helper,手动包 BEGIN/COMMIT */
+function inTransaction(db: DatabaseSync, fn: () => void) {
+  db.exec("BEGIN");
+  try {
+    fn();
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+}
+
 /** 已上线的库缺 chapter 列时补上(CREATE TABLE IF NOT EXISTS 对已存在的表不会加新列) */
-function migrate(db: Database.Database) {
-  const cols = db.prepare("PRAGMA table_info(questions)").all() as Array<{ name: string }>;
+function migrate(db: DatabaseSync) {
+  const cols = db.prepare("SELECT name FROM pragma_table_info('questions')").all() as Array<{ name: string }>;
   if (!cols.some((c) => c.name === "chapter")) {
     db.exec("ALTER TABLE questions ADD COLUMN chapter TEXT NOT NULL DEFAULT ''");
   }
 }
 
 /** 首次启动内置一份公开示例题库,首页广场不空,新手可直接体验 */
-function seedDemo(db: Database.Database) {
+function seedDemo(db: DatabaseSync) {
   const exists = db.prepare("SELECT id FROM banks WHERE slug = 'demo'").get();
   if (exists) return;
   const info = db
@@ -77,10 +92,10 @@ function seedDemo(db: Database.Database) {
     )
     .run("示例题库 · 计算机基础 10 题", sha256(newOwnerKey()));
   const ins = db.prepare(
-    "INSERT INTO questions (bank_id, type, stem, options_json, answer, explanation, sort) VALUES (?,?,?,?,?,?,?)"
+    "INSERT INTO questions (bank_id, type, stem, options_json, answer, explanation, sort, chapter) VALUES (?,?,?,?,?,?,?,?)"
   );
   DEMO_QUESTIONS.forEach((q, i) => {
-    ins.run(info.lastInsertRowid, q.type, q.stem, JSON.stringify(q.options), q.answer, q.explanation ?? "", i);
+    ins.run(info.lastInsertRowid, q.type, q.stem, JSON.stringify(q.options), q.answer, q.explanation ?? "", i, q.chapter ?? "");
   });
 }
 
@@ -90,7 +105,7 @@ export function createBank(title: string, visibility: Visibility, questions: Dra
   const db = getDb();
   const slug = newSlug();
   const ownerKey = newOwnerKey();
-  const tx = db.transaction(() => {
+  inTransaction(db, () => {
     const info = db
       .prepare("INSERT INTO banks (slug, title, visibility, owner_key_hash) VALUES (?,?,?,?)")
       .run(slug, title, visibility, sha256(ownerKey));
@@ -101,7 +116,6 @@ export function createBank(title: string, visibility: Visibility, questions: Dra
       ins.run(info.lastInsertRowid, q.type, q.stem, JSON.stringify(q.options ?? []), q.answer ?? "", q.explanation ?? "", i, q.chapter ?? "");
     });
   });
-  tx();
   return { slug, ownerKey };
 }
 
@@ -144,7 +158,7 @@ export function listPublicBanks(): Bank[] {
               (SELECT COUNT(*) FROM questions q WHERE q.bank_id = b.id) AS question_count
        FROM banks b WHERE b.visibility = 'public' ORDER BY b.id DESC LIMIT 60`
     )
-    .all() as Bank[];
+    .all() as unknown as Bank[];
 }
 
 export function updateBank(id: number, fields: { title?: string; visibility?: Visibility }) {
@@ -156,11 +170,10 @@ export function updateBank(id: number, fields: { title?: string; visibility?: Vi
 
 export function deleteBank(id: number) {
   const db = getDb();
-  const tx = db.transaction(() => {
+  inTransaction(db, () => {
     db.prepare("DELETE FROM questions WHERE bank_id = ?").run(id);
     db.prepare("DELETE FROM banks WHERE id = ?").run(id);
   });
-  tx();
 }
 
 // ---------- AI 解析缓存 ----------
