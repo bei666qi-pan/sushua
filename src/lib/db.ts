@@ -74,11 +74,15 @@ function inTransaction(db: DatabaseSync, fn: () => void) {
   }
 }
 
-/** 已上线的库缺 chapter 列时补上(CREATE TABLE IF NOT EXISTS 对已存在的表不会加新列) */
+/** 已上线的库缺列时补上(CREATE TABLE IF NOT EXISTS 对已存在的表不会加新列) */
 function migrate(db: DatabaseSync) {
   const cols = db.prepare("SELECT name FROM pragma_table_info('questions')").all() as Array<{ name: string }>;
   if (!cols.some((c) => c.name === "chapter")) {
     db.exec("ALTER TABLE questions ADD COLUMN chapter TEXT NOT NULL DEFAULT ''");
+  }
+  const aiCols = db.prepare("SELECT name FROM pragma_table_info('ai_explanations')").all() as Array<{ name: string }>;
+  if (!aiCols.some((c) => c.name === "prompt_version")) {
+    db.exec("ALTER TABLE ai_explanations ADD COLUMN prompt_version INTEGER NOT NULL DEFAULT 1");
   }
 }
 
@@ -178,19 +182,19 @@ export function deleteBank(id: number) {
 
 // ---------- AI 解析缓存 ----------
 
-export function getCachedExplanation(hash: string): string | undefined {
+export function getCachedExplanation(hash: string): { content: string; version: number } | undefined {
   const row = getDb()
-    .prepare("SELECT content FROM ai_explanations WHERE question_hash = ?")
-    .get(hash) as { content: string } | undefined;
-  return row?.content;
+    .prepare("SELECT content, prompt_version FROM ai_explanations WHERE question_hash = ?")
+    .get(hash) as { content: string; prompt_version: number } | undefined;
+  return row ? { content: row.content, version: row.prompt_version } : undefined;
 }
 
-export function saveExplanation(hash: string, content: string, tokensIn: number, tokensOut: number) {
+export function saveExplanation(hash: string, content: string, tokensIn: number, tokensOut: number, version: number) {
   getDb()
     .prepare(
-      "INSERT INTO ai_explanations (question_hash, content, tokens_in, tokens_out) VALUES (?,?,?,?) ON CONFLICT(question_hash) DO UPDATE SET content = excluded.content"
+      "INSERT INTO ai_explanations (question_hash, content, tokens_in, tokens_out, prompt_version) VALUES (?,?,?,?,?) ON CONFLICT(question_hash) DO UPDATE SET content = excluded.content, tokens_in = excluded.tokens_in, tokens_out = excluded.tokens_out, prompt_version = excluded.prompt_version"
     )
-    .run(hash, content, tokensIn, tokensOut);
+    .run(hash, content, tokensIn, tokensOut, version);
 }
 
 // ---------- 小时成本 ----------

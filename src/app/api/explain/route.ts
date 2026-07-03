@@ -1,6 +1,6 @@
 import { getCachedExplanation, saveExplanation } from "@/lib/db";
 import { questionHash } from "@/lib/hash";
-import { aiConfigured, budgetState, chatStreamRaw, recordUsage, EXPLAIN_SYSTEM_PROMPT } from "@/lib/deepseek";
+import { aiConfigured, budgetState, chatOnce, chatStreamRaw, recordUsage, EXPLAIN_MAX_TOKENS, EXPLAIN_PROMPT_VERSION, EXPLAIN_SYSTEM_PROMPT } from "@/lib/deepseek";
 import { allow, clientIp } from "@/lib/ratelimit";
 import { TYPE_LABEL, type QType } from "@/lib/types";
 
@@ -47,7 +47,7 @@ function sseResponse(cb: (send: (obj: unknown) => void) => Promise<void>): Respo
 }
 
 export async function POST(req: Request) {
-  let body: { stem?: string; options?: string[]; answer?: string; type?: QType };
+  let body: { stem?: string; options?: string[]; answer?: string; type?: QType; force?: boolean };
   try {
     body = await req.json();
   } catch {
@@ -57,16 +57,18 @@ export async function POST(req: Request) {
   const options = (Array.isArray(body.options) ? body.options : []).map(String).slice(0, 8);
   const answer = String(body.answer ?? "").slice(0, 2000);
   const type = body.type ?? "single";
+  const force = body.force === true;
   if (!stem) return new Response("bad request", { status: 400 });
 
   const hash = questionHash(stem, options);
 
-  // 1) 全局缓存命中:同一题全站只调一次 API,直接读库返回
+  // 1) 全局缓存命中:同一题全站只调一次 API,直接读库返回。
+  //    force=true(用户点"重新生成")跳过读缓存,用新版 prompt 重生成并覆盖旧缓存
   const cached = getCachedExplanation(hash);
-  if (cached) {
+  if (cached && !force) {
     return sseResponse(async (send) => {
-      send({ t: "meta", cached: true });
-      send({ t: "delta", c: cached });
+      send({ t: "meta", cached: true, v: cached.version });
+      send({ t: "delta", c: cached.content });
       send({ t: "done" });
     });
   }
@@ -78,8 +80,9 @@ export async function POST(req: Request) {
     });
   }
 
-  // 3) IP 限流:10 次/分钟
-  if (!allow("explain:" + clientIp(req), 10, 60_000)) {
+  // 3) IP 限流:10 次/分钟;强制重生成必然打 API,单独更严限流 3 次/分钟
+  const ip = clientIp(req);
+  if (!allow("explain:" + ip, 10, 60_000) || (force && !allow("explain-force:" + ip, 3, 60_000))) {
     return sseResponse(async (send) => {
       send({ t: "error", code: "ratelimit", msg: "请求太频繁,休息一下,一分钟后再试" });
     });
@@ -101,8 +104,8 @@ export async function POST(req: Request) {
     .join("\n");
 
   return sseResponse(async (send) => {
-    send({ t: "meta", cached: false });
-    const upstream = await chatStreamRaw(EXPLAIN_SYSTEM_PROMPT, userPrompt, 500);
+    send({ t: "meta", cached: false, v: EXPLAIN_PROMPT_VERSION });
+    const upstream = await chatStreamRaw(EXPLAIN_SYSTEM_PROMPT, userPrompt, EXPLAIN_MAX_TOKENS);
     if (!upstream.ok || !upstream.body) {
       send({ t: "error", code: "upstream", msg: "AI 服务暂时不可用,请稍后再试" });
       return;
@@ -143,8 +146,23 @@ export async function POST(req: Request) {
       tokensIn = tokens.missTokens + tokens.hitTokens;
       tokensOut = tokens.outputTokens;
     }
+
+    // 流式空回复:非流式兜底重试一次(偶发上游异常,避免让用户手动重试)
+    if (!full.trim()) {
+      const retry = await chatOnce(EXPLAIN_SYSTEM_PROMPT, userPrompt, EXPLAIN_MAX_TOKENS);
+      if (retry?.content.trim()) {
+        full = retry.content;
+        send({ t: "delta", c: full });
+        if (retry.usage) {
+          const { tokens } = recordUsage(retry.usage);
+          tokensIn += tokens.missTokens + tokens.hitTokens;
+          tokensOut += tokens.outputTokens;
+        }
+      }
+    }
+
     if (full.trim()) {
-      saveExplanation(hash, full, tokensIn, tokensOut);
+      saveExplanation(hash, full, tokensIn, tokensOut, EXPLAIN_PROMPT_VERSION);
       send({ t: "done" });
     } else {
       send({ t: "error", code: "empty", msg: "AI 没有返回内容,请重试" });
