@@ -941,7 +941,13 @@ function QuestionCard(props: {
                 解析:{q.explanation}
               </p>
             )}
-            <AiExplain stem={q.stem} options={q.options} answer={q.answer} type={q.type} />
+            <AiExplain
+              stem={q.stem}
+              options={q.options}
+              answer={q.answer}
+              type={q.type}
+              userChoice={rec?.correct === false ? rec.sel : undefined}
+            />
           </div>
         )}
       </div>
