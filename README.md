@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="public/icons/icon-192.png" alt="速刷 logo" width="96" height="96">
+
 # ⚡ 速刷 SuShua
 
 **期末题库,上传即刷 —— 把老师发的题库文件,30 秒变成你的刷题神器**
