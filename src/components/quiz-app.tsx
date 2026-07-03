@@ -841,15 +841,6 @@ function QuestionCard(props: {
                 </button>
               );
             })}
-            {q.type === "multiple" && !answered && (
-              <button
-                onClick={props.onConfirmMulti}
-                disabled={pendingSel.length === 0}
-                className="mt-1 rounded-lg bg-pine px-5 py-2 text-sm font-medium text-white hover:bg-pine-deep disabled:opacity-40"
-              >
-                确认答案(Enter)
-              </button>
-            )}
           </div>
         )}
 
@@ -955,23 +946,28 @@ function QuestionCard(props: {
         )}
       </div>
 
-      {/* 底部切题 */}
-      <div className="mt-4 flex items-center justify-between">
-        <button
-          onClick={props.onPrev}
-          disabled={index === 0}
-          className="rounded-lg border border-line-strong bg-card px-5 py-2.5 text-sm disabled:opacity-40"
-        >
-          ← 上一题
-        </button>
-        <button
-          onClick={props.onNext}
-          disabled={index >= total - 1}
-          className="rounded-lg bg-pine px-6 py-2.5 text-sm font-medium text-white hover:bg-pine-deep disabled:opacity-40"
-        >
-          下一题 →
-        </button>
-      </div>
+      {/* 底部切题:多选未确认时,这颗按钮先充当"确认答案",确认后才变回"下一题" */}
+      {(() => {
+        const needsConfirm = q.type === "multiple" && !answered;
+        return (
+          <div className="mt-4 flex items-center justify-between">
+            <button
+              onClick={props.onPrev}
+              disabled={index === 0}
+              className="rounded-lg border border-line-strong bg-card px-5 py-2.5 text-sm disabled:opacity-40"
+            >
+              ← 上一题
+            </button>
+            <button
+              onClick={needsConfirm ? props.onConfirmMulti : props.onNext}
+              disabled={needsConfirm ? pendingSel.length === 0 : index >= total - 1}
+              className="rounded-lg bg-pine px-6 py-2.5 text-sm font-medium text-white hover:bg-pine-deep disabled:opacity-40"
+            >
+              {needsConfirm ? "确认答案(Enter)" : "下一题 →"}
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 }
