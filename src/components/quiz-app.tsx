@@ -25,6 +25,7 @@ interface Progress {
   answers: Record<number, AnswerRec>;
   wrong: number[];
   onlyWrong: boolean;
+  wrongRound?: number[]; // 本轮重刷错题的快照:刷对后题目不会立刻从列表消失
 }
 
 type Tab = "quiz" | "memo" | "wrong" | "search";
@@ -62,6 +63,8 @@ export function QuizApp({ slug }: { slug: string }) {
   const [memoVisible, setMemoVisible] = useState(60);
   const [keyword, setKeyword] = useState("");
   const [copied, setCopied] = useState(false);
+  const [streak, setStreak] = useState(0); // 连对计数(仅当前会话,不落盘)
+  const [lastAnsweredId, setLastAnsweredId] = useState<number | null>(null);
   const progKey = `sushua:prog:${slug}`;
 
   // ---------- 加载题库(一次性全部下发,切题零请求) ----------
@@ -124,7 +127,8 @@ export function QuizApp({ slug }: { slug: string }) {
   // 当前刷题序列(全部 or 只刷错题 · 可叠加章节筛选)
   const quizList = useMemo(() => {
     if (!prog) return [];
-    let ids = prog.onlyWrong ? prog.order.filter((id) => prog.wrong.includes(id)) : prog.order;
+    const wrongPool = prog.wrongRound ?? prog.wrong;
+    let ids = prog.onlyWrong ? prog.order.filter((id) => wrongPool.includes(id)) : prog.order;
     if (chapterFilter) ids = ids.filter((id) => qById.get(id)?.chapter === chapterFilter);
     return ids;
   }, [prog, chapterFilter, qById]);
@@ -138,6 +142,14 @@ export function QuizApp({ slug }: { slug: string }) {
     () => (prog ? quizList.filter((id) => prog.answers[id]?.correct === true).length : 0),
     [prog, quizList]
   );
+
+  // 本章/本轮是否刷完 + 下一章
+  const chapterDone = quizList.length > 0 && doneCount === quizList.length;
+  const wrongInList = useMemo(
+    () => (prog ? quizList.filter((id) => prog.answers[id]?.correct === false) : []),
+    [prog, quizList]
+  );
+  const nextChapter = chapterFilter ? chapters[chapters.indexOf(chapterFilter) + 1] : undefined;
 
   // ---------- 判分 ----------
   const grade = useCallback(
@@ -161,6 +173,9 @@ export function QuizApp({ slug }: { slug: string }) {
       let wrong = prog.wrong;
       if (correct === false && !wrong.includes(q.id)) wrong = [...wrong, q.id];
       if (correct === true && prog.onlyWrong) wrong = wrong.filter((id) => id !== q.id); // 错题刷对了就移出
+      if (correct === true) setStreak((s) => s + 1);
+      else if (correct === false) setStreak(0);
+      setLastAnsweredId(q.id);
       persist({ ...prog, answers, wrong });
     },
     [prog, grade, persist]
@@ -175,6 +190,29 @@ export function QuizApp({ slug }: { slug: string }) {
       setFillInput("");
     },
     [prog, quizList.length, persist]
+  );
+
+  const gotoNextChapter = useCallback(() => {
+    if (!nextChapter || !prog) return;
+    setChapterFilter(nextChapter);
+    persist({ ...prog, idx: 0 });
+    setPendingSel([]);
+    setFillInput("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [nextChapter, prog, persist]);
+
+  // 重刷错题:快照本轮题目并清掉旧作答,让这些题可以真正重新作答
+  const startWrongRedo = useCallback(
+    (ids: number[]) => {
+      if (!prog || ids.length === 0) return;
+      const answers = { ...prog.answers };
+      ids.forEach((id) => delete answers[id]);
+      persist({ ...prog, answers, onlyWrong: true, wrongRound: ids, idx: 0 });
+      setStreak(0);
+      setPendingSel([]);
+      setFillInput("");
+    },
+    [prog, persist]
   );
 
   const selectOption = useCallback(
@@ -208,7 +246,12 @@ export function QuizApp({ slug }: { slug: string }) {
         if (curQ.type === "multiple" && !curRec && pendingSel.length) return submitAnswer(curQ, pendingSel.join(""));
         if ((curQ.type === "fill" || curQ.type === "short") && !curRec && !revealed.has(curQ.id))
           return setRevealed((s) => new Set(s).add(curQ.id));
-        if (curRec) return goto((prog?.idx ?? 0) + 1);
+        if (curRec) {
+          // 章节刷完且在最后一题:Enter 直接进下一章
+          if (prog && prog.idx >= quizList.length - 1 && chapterDone && nextChapter && !prog.onlyWrong)
+            return gotoNextChapter();
+          return goto((prog?.idx ?? 0) + 1);
+        }
         return;
       }
       if (curQ.type === "judge" && !curRec) {
@@ -226,7 +269,7 @@ export function QuizApp({ slug }: { slug: string }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tab, curQ, curRec, prog, pendingSel, revealed, goto, selectOption, submitAnswer]);
+  }, [tab, curQ, curRec, prog, pendingSel, revealed, goto, selectOption, submitAnswer, quizList.length, chapterDone, nextChapter, gotoNextChapter]);
 
   // ---------- 管理操作 ----------
   const ownerKey = typeof window !== "undefined" ? localStorage.getItem(`sushua:owner:${slug}`) ?? "" : "";
@@ -422,7 +465,7 @@ export function QuizApp({ slug }: { slug: string }) {
               </button>
               {prog.onlyWrong && (
                 <button
-                  onClick={() => persist({ ...prog, onlyWrong: false, idx: 0 })}
+                  onClick={() => persist({ ...prog, onlyWrong: false, wrongRound: undefined, idx: 0 })}
                   className="rounded-lg border border-bad/40 bg-bad-soft px-2.5 py-1 text-bad"
                 >
                   只刷错题中 · 退出
@@ -443,12 +486,14 @@ export function QuizApp({ slug }: { slug: string }) {
             <button
               onClick={() => {
                 if (!confirm("清空本题库的刷题进度,重新开始?")) return;
+                setStreak(0);
                 persist({
                   ...prog,
                   idx: 0,
                   answers: {},
                   wrong: [],
                   onlyWrong: false,
+                  wrongRound: undefined,
                   order: prog.shuffle ? shuffled(questions.map((q) => q.id)) : questions.map((q) => q.id),
                 });
               }}
@@ -461,32 +506,99 @@ export function QuizApp({ slug }: { slug: string }) {
           {/* 进度条 */}
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-line">
             <div
-              className="h-full rounded-full bg-pine transition-all"
+              className={`h-full rounded-full transition-all duration-500 ${chapterDone ? "bg-ok" : "bg-pine"}`}
               style={{ width: `${quizList.length ? (doneCount / quizList.length) * 100 : 0}%` }}
             />
           </div>
 
           {quizList.length === 0 ? (
-            <p className="py-16 text-center text-sm text-ink-soft">没有可刷的题</p>
+            prog.onlyWrong ? (
+              <div className="fade-up py-16 text-center">
+                <p className="text-sm font-medium text-pine">错题都消灭了 ✓</p>
+                <button
+                  onClick={() => persist({ ...prog, onlyWrong: false, wrongRound: undefined, idx: 0 })}
+                  className="mt-3 text-sm text-pine underline underline-offset-2"
+                >
+                  回到全部题目
+                </button>
+              </div>
+            ) : (
+              <p className="py-16 text-center text-sm text-ink-soft">没有可刷的题</p>
+            )
           ) : (
             curQ && (
-              <QuestionCard
-                key={curQ.id}
-                q={curQ}
-                index={prog.idx}
-                total={quizList.length}
-                rec={curRec}
-                pendingSel={pendingSel}
-                revealed={revealed.has(curQ.id)}
-                fillInput={fillInput}
-                onFillInput={setFillInput}
-                onSelect={selectOption}
-                onConfirmMulti={() => pendingSel.length && submitAnswer(curQ, pendingSel.join(""))}
-                onReveal={() => setRevealed((s) => new Set(s).add(curQ.id))}
-                onSelfJudge={(ok) => submitAnswer(curQ, fillInput, ok)}
-                onPrev={() => goto(prog.idx - 1)}
-                onNext={() => goto(prog.idx + 1)}
-              />
+              <>
+                <QuestionCard
+                  key={curQ.id}
+                  q={curQ}
+                  index={prog.idx}
+                  total={quizList.length}
+                  rec={curRec}
+                  pendingSel={pendingSel}
+                  revealed={revealed.has(curQ.id)}
+                  fillInput={fillInput}
+                  streak={streak}
+                  isLastAnswered={curQ.id === lastAnsweredId}
+                  nextChapter={!prog.onlyWrong && chapterDone ? nextChapter : undefined}
+                  onNextChapter={gotoNextChapter}
+                  onFillInput={setFillInput}
+                  onSelect={selectOption}
+                  onConfirmMulti={() => pendingSel.length && submitAnswer(curQ, pendingSel.join(""))}
+                  onReveal={() => setRevealed((s) => new Set(s).add(curQ.id))}
+                  onSelfJudge={(ok) => submitAnswer(curQ, fillInput, ok)}
+                  onPrev={() => goto(prog.idx - 1)}
+                  onNext={() => goto(prog.idx + 1)}
+                />
+
+                {/* 刷完本章/本轮:小结卡片 + 下一章入口 */}
+                {chapterDone && (
+                  <div className="pop-in mt-4 rounded-2xl border border-pine/25 bg-pine-soft px-5 py-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-medium text-pine">
+                          {prog.onlyWrong
+                            ? "这轮错题刷完了"
+                            : chapterFilter
+                              ? `「${chapterFilter}」刷完了`
+                              : "整套题刷完了"}
+                          {correctCount === quizList.length && " · 全对 👏"}
+                        </div>
+                        <div className="mt-1 text-xs text-ink-soft">
+                          共 {quizList.length} 题 · 正确率 {Math.round((correctCount / quizList.length) * 100)}%
+                          {wrongInList.length > 0 && ` · 答错 ${wrongInList.length} 题`}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {wrongInList.length > 0 && (
+                          <button
+                            onClick={() => startWrongRedo(wrongInList)}
+                            className="rounded-lg border border-bad/40 bg-card px-3 py-1.5 text-xs text-bad hover:bg-bad-soft"
+                          >
+                            重刷答错的 {wrongInList.length} 题
+                          </button>
+                        )}
+                        {prog.onlyWrong ? (
+                          <button
+                            onClick={() => persist({ ...prog, onlyWrong: false, wrongRound: undefined, idx: 0 })}
+                            className="rounded-lg border border-line-strong bg-card px-3 py-1.5 text-xs hover:border-pine hover:text-pine"
+                          >
+                            回到全部题目
+                          </button>
+                        ) : nextChapter ? (
+                          <button
+                            onClick={gotoNextChapter}
+                            className="rounded-lg bg-pine px-4 py-1.5 text-xs font-medium text-white hover:bg-pine-deep"
+                          >
+                            下一章:{nextChapter.length > 12 ? `${nextChapter.slice(0, 12)}…` : nextChapter} →
+                          </button>
+                        ) : chapterFilter ? (
+                          <span className="text-xs text-ink-faint">已是最后一章</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
             )
           )}
         </div>
@@ -548,7 +660,8 @@ export function QuizApp({ slug }: { slug: string }) {
                 <p className="text-xs text-ink-soft">共 {prog.wrong.length} 道错题</p>
                 <button
                   onClick={() => {
-                    persist({ ...prog, onlyWrong: true, idx: 0 });
+                    setChapterFilter("");
+                    startWrongRedo(prog.wrong);
                     setTab("quiz");
                   }}
                   className="rounded-lg bg-pine px-4 py-1.5 text-sm font-medium text-white hover:bg-pine-deep"
@@ -772,6 +885,10 @@ function QuestionCard(props: {
   pendingSel: string[];
   revealed: boolean;
   fillInput: string;
+  streak: number;
+  isLastAnswered: boolean;
+  nextChapter?: string;
+  onNextChapter?: () => void;
   onFillInput: (s: string) => void;
   onSelect: (letter: string) => void;
   onConfirmMulti: () => void;
@@ -926,7 +1043,7 @@ function QuestionCard(props: {
         {answered && (
           <div className="fade-up mt-4">
             <div
-              className={`rounded-xl px-4 py-3 text-sm font-medium ${
+              className={`pop-in rounded-xl px-4 py-3 text-sm font-medium ${
                 rec!.correct === true
                   ? "bg-ok-soft text-ok"
                   : rec!.correct === false
@@ -934,7 +1051,11 @@ function QuestionCard(props: {
                     : "bg-warn-soft text-ink-soft"
               }`}
             >
-              {rec!.correct === true ? "回答正确 🎉" : rec!.correct === false ? `答错了,正确答案:${formatAnswer(q)}` : `参考答案:${formatAnswer(q)}`}
+              {rec!.correct === true
+                ? `回答正确 🎉${props.isLastAnswered && props.streak >= 3 ? ` 已连对 ${props.streak} 题` : ""}`
+                : rec!.correct === false
+                  ? `答错了,正确答案:${formatAnswer(q)}`
+                  : `参考答案:${formatAnswer(q)}`}
             </div>
             {q.explanation && (
               <p className="mt-3 rounded-lg bg-paper px-4 py-3 text-sm leading-relaxed text-ink-soft">
@@ -955,6 +1076,9 @@ function QuestionCard(props: {
       {/* 底部切题:多选未确认时,这颗按钮先充当"确认答案",确认后才变回"下一题" */}
       {(() => {
         const needsConfirm = q.type === "multiple" && !answered;
+        const atEnd = index >= total - 1;
+        // 章节刷完且在最后一题:这颗按钮变成"进入下一章"
+        const showNextChapter = atEnd && answered && !!props.nextChapter && !!props.onNextChapter;
         return (
           <div className="mt-4 flex items-center justify-between">
             <button
@@ -965,11 +1089,11 @@ function QuestionCard(props: {
               ← 上一题
             </button>
             <button
-              onClick={needsConfirm ? props.onConfirmMulti : props.onNext}
-              disabled={needsConfirm ? pendingSel.length === 0 : index >= total - 1}
+              onClick={needsConfirm ? props.onConfirmMulti : showNextChapter ? props.onNextChapter : props.onNext}
+              disabled={needsConfirm ? pendingSel.length === 0 : showNextChapter ? false : atEnd}
               className="rounded-lg bg-pine px-6 py-2.5 text-sm font-medium text-white hover:bg-pine-deep disabled:opacity-40"
             >
-              {needsConfirm ? "确认答案(Enter)" : "下一题 →"}
+              {needsConfirm ? "确认答案(Enter)" : showNextChapter ? "进入下一章 →" : "下一题 →"}
             </button>
           </div>
         );
