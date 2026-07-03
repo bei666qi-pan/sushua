@@ -18,6 +18,7 @@
   --color-bad-soft: #fbeeea;
   --color-warn: #b07d10;
   --color-warn-soft: #faf3e0;
+  --color-mark: #f2cf5b; /* 荧光笔黄:划重点 */
 
   --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC",
     "Source Han Sans SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
@@ -33,7 +34,9 @@ html {
 }
 
 body {
-  background: var(--color-paper);
+  /* 纸纹理:极淡的噪点叠在暖白上,像铅画纸的纸牙 */
+  background-color: var(--color-paper);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.032'/%3E%3C/svg%3E");
   color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
@@ -150,4 +153,88 @@ body {
 /* 分区内容依次浮现 */
 .ai-section {
   animation: fadeUp 0.3s ease-out both;
+}
+
+/* —— 首页 · 设计系统 —— */
+
+/* 入场节奏:同一组元素依次浮现 */
+.d1 { animation-delay: 0.06s; }
+.d2 { animation-delay: 0.14s; }
+.d3 { animation-delay: 0.22s; }
+.d4 { animation-delay: 0.3s; }
+
+/* 荧光笔划重点:从左往右扫过一道黄 */
+@keyframes markSweep {
+  from { transform: skewX(-8deg) scaleX(0); }
+  to { transform: skewX(-8deg) scaleX(1); }
+}
+
+.hl-mark {
+  position: relative;
+  z-index: 0;
+  white-space: nowrap;
+}
+
+.hl-mark::before {
+  content: "";
+  position: absolute;
+  left: -0.1em;
+  right: -0.1em;
+  top: 56%;
+  bottom: -0.04em;
+  z-index: -1;
+  border-radius: 0.12em;
+  background: color-mix(in srgb, var(--color-mark) 52%, transparent);
+  transform-origin: left center;
+  animation: markSweep 0.6s 0.45s cubic-bezier(0.25, 0.8, 0.3, 1) both;
+}
+
+/* Hero 右上一团很淡的松绿光晕,给演示卡垫个底 */
+.hero-halo {
+  background: radial-gradient(
+    560px 420px at 82% 18%,
+    color-mix(in srgb, var(--color-pine) 8%, transparent),
+    transparent 66%
+  );
+}
+
+/* 演示卡:像随手搁在桌上的一沓卷子,轻轻浮动 */
+@keyframes deskFloat {
+  0%, 100% { transform: rotate(1.2deg) translateY(0); }
+  50% { transform: rotate(1.2deg) translateY(-7px); }
+}
+
+.desk-float {
+  transform: rotate(1.2deg);
+  animation: deskFloat 7s ease-in-out infinite;
+}
+
+/* 演示卡内:选项被"按下去"的瞬间 */
+@keyframes demoPress {
+  0% { transform: scale(1); }
+  45% { transform: scale(0.975); }
+  100% { transform: scale(1); }
+}
+
+.demo-press {
+  animation: demoPress 0.28s ease-out both;
+}
+
+/* 三步流程之间的虚线牵引 */
+.step-dash {
+  background-image: linear-gradient(90deg, var(--color-line-strong) 55%, transparent 45%);
+  background-size: 12px 2px;
+  background-repeat: repeat-x;
+  background-position: center;
+}
+
+/* 深色收尾横幅上的纸纹 */
+.band-grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desk-float { animation: none; }
+  .hl-mark::before { animation-duration: 0.01s; animation-delay: 0s; }
+  .fade-up, .pop-in, .ai-section { animation-duration: 0.01s; animation-delay: 0s; }
 }
