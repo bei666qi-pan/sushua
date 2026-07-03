@@ -69,6 +69,10 @@ export function QuizApp({ slug }: { slug: string }) {
 
   // ---------- 加载题库(一次性全部下发,切题零请求) ----------
   useEffect(() => {
+    // 页面本身不会因切换题库而重新挂载(同一 QuizApp 实例复用),
+    // 先清掉上一个题库的 Tab / 章节筛选,避免串到新题库上
+    setTab("quiz");
+    setChapterFilter("");
     const ownerKey = localStorage.getItem(`sushua:owner:${slug}`) ?? "";
     fetch(`/api/banks/${slug}`, { headers: ownerKey ? { "x-owner-key": ownerKey } : {} })
       .then(async (res) => {
@@ -87,6 +91,17 @@ export function QuizApp({ slug }: { slug: string }) {
           p = { shuffle: false, order: ids, idx: 0, answers: {}, wrong: [], onlyWrong: false };
         }
         setProg(p);
+
+        // 恢复上次停留的 Tab / 章节筛选,刷新页面不掉回默认位置
+        const savedTab = localStorage.getItem(`sushua:tab:${slug}`);
+        if (savedTab && (["quiz", "memo", "wrong", "search"] as string[]).includes(savedTab)) {
+          setTab(savedTab as Tab);
+        }
+        const savedChapter = localStorage.getItem(`sushua:chapter:${slug}`);
+        if (savedChapter) {
+          const chapterSet = new Set((d.questions as Question[]).map((q) => q.chapter).filter(Boolean));
+          if (chapterSet.has(savedChapter)) setChapterFilter(savedChapter);
+        }
       })
       .catch((e) => setLoadErr(e.message));
     if (new URLSearchParams(window.location.search).get("created") === "1") {
@@ -111,6 +126,24 @@ export function QuizApp({ slug }: { slug: string }) {
   }, [data]);
 
   const [chapterFilter, setChapterFilter] = useState<string>("");
+
+  // 切 Tab / 切章节筛选时顺带记住,供刷新页面后恢复
+  const changeTab = useCallback(
+    (t: Tab) => {
+      setTab(t);
+      localStorage.setItem(`sushua:tab:${slug}`, t);
+    },
+    [slug]
+  );
+  const changeChapterFilter = useCallback(
+    (c: string) => {
+      setChapterFilter(c);
+      if (c) localStorage.setItem(`sushua:chapter:${slug}`, c);
+      else localStorage.removeItem(`sushua:chapter:${slug}`);
+    },
+    [slug]
+  );
+
   const chapters = useMemo(() => {
     const set = new Set<string>();
     data?.questions.forEach((q) => q.chapter && set.add(q.chapter));
@@ -194,12 +227,12 @@ export function QuizApp({ slug }: { slug: string }) {
 
   const gotoNextChapter = useCallback(() => {
     if (!nextChapter || !prog) return;
-    setChapterFilter(nextChapter);
+    changeChapterFilter(nextChapter);
     persist({ ...prog, idx: 0 });
     setPendingSel([]);
     setFillInput("");
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [nextChapter, prog, persist]);
+  }, [nextChapter, prog, persist, changeChapterFilter]);
 
   // 重刷错题:快照本轮题目并清掉旧作答,让这些题可以真正重新作答
   const startWrongRedo = useCallback(
@@ -430,7 +463,7 @@ export function QuizApp({ slug }: { slug: string }) {
           ).map(([t, label]) => (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => changeTab(t)}
               className={`border-b-2 px-3 py-2.5 text-sm transition-colors ${
                 tab === t ? "border-pine font-medium text-pine" : "border-transparent text-ink-soft hover:text-ink"
               }`}
@@ -477,7 +510,7 @@ export function QuizApp({ slug }: { slug: string }) {
                   counts={chapterCounts}
                   value={chapterFilter}
                   onChange={(c) => {
-                    setChapterFilter(c);
+                    changeChapterFilter(c);
                     persist({ ...prog, idx: 0 });
                   }}
                 />
@@ -611,7 +644,7 @@ export function QuizApp({ slug }: { slug: string }) {
             <p className="text-xs text-ink-soft">题目答案同屏,上下滑着背</p>
             <div className="flex items-center gap-2">
               {chapters.length > 0 && (
-                <ChapterSelect chapters={chapters} counts={chapterCounts} value={chapterFilter} onChange={setChapterFilter} />
+                <ChapterSelect chapters={chapters} counts={chapterCounts} value={chapterFilter} onChange={changeChapterFilter} />
               )}
               <button
                 onClick={() => setAnswersOnly((s) => !s)}
@@ -660,9 +693,9 @@ export function QuizApp({ slug }: { slug: string }) {
                 <p className="text-xs text-ink-soft">共 {prog.wrong.length} 道错题</p>
                 <button
                   onClick={() => {
-                    setChapterFilter("");
+                    changeChapterFilter("");
                     startWrongRedo(prog.wrong);
-                    setTab("quiz");
+                    changeTab("quiz");
                   }}
                   className="rounded-lg bg-pine px-4 py-1.5 text-sm font-medium text-white hover:bg-pine-deep"
                 >
@@ -723,7 +756,7 @@ export function QuizApp({ slug }: { slug: string }) {
                   key={q.id}
                   onClick={() => {
                     persist({ ...prog, onlyWrong: false, idx: Math.max(pos, 0) });
-                    setTab("quiz");
+                    changeTab("quiz");
                   }}
                   className="block w-full rounded-xl border border-line bg-card p-4 text-left transition-colors hover:border-pine"
                 >
