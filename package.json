@@ -9,7 +9,7 @@
     "test": "npm run test:unit && npm run test:golden && npm run test:integration",
     "test:unit": "tsx test/breaker.test.ts && tsx test/parser.test.ts && tsx test/feature-flags.test.ts",
     "test:golden": "tsx test/golden-manifest.test.ts",
-    "test:integration": "tsx test/workspace-postgres.test.ts",
+    "test:integration": "tsx test/workspace-postgres.test.ts && tsx test/guest-claim.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings=0",
     "audit": "npm audit --omit=dev --audit-level=high",

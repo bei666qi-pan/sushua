@@ -4,6 +4,7 @@ import { postgresSchema } from "./schema";
 
 export type TenantContext = {
   learnerId: string;
+  userId?: string;
   workspaceId?: string;
   shareTokenHash?: string;
 };
@@ -55,6 +56,7 @@ export function createPostgresRuntime(input: {
 
 async function setTenantContext(client: PoolClient, context: TenantContext): Promise<void> {
   await client.query("SELECT set_config('app.learner_id', $1, true)", [context.learnerId]);
+  await client.query("SELECT set_config('app.user_id', $1, true)", [context.userId ?? ""]);
   await client.query("SELECT set_config('app.workspace_id', $1, true)", [context.workspaceId ?? ""]);
   await client.query("SELECT set_config('app.share_token_hash', $1, true)", [context.shareTokenHash ?? ""]);
 }
