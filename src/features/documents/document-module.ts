@@ -15,6 +15,8 @@ type UploadDraftInput = {
   manualMode?: WorkspaceMode;
   idempotencyKey: string;
   requestHash: string;
+  storageUploadId?: string;
+  uploadExpiresAt?: string;
 };
 type DocumentRecord = {
   id: string;
@@ -29,6 +31,9 @@ type DocumentRecord = {
   assetId: string;
   objectKey: string;
   scanStatus: "pending" | "clean" | "infected" | "failed";
+  sizeBytes: number;
+  storageUploadId?: string;
+  uploadExpiresAt?: string;
   createdAt: string;
 };
 type DocumentRow = {
@@ -44,6 +49,9 @@ type DocumentRow = {
   asset_id: string;
   object_key: string;
   scan_status: DocumentRecord["scanStatus"];
+  size_bytes: string | number;
+  storage_upload_id: string | null;
+  upload_expires_at: Date | string | null;
   created_at: Date | string;
   request_hash: string;
 };
@@ -85,15 +93,38 @@ export function createDocumentModule(runtime: PostgresRuntime, options: { now?: 
         await query(
           `INSERT INTO source_assets (
              id, workspace_id, document_version_id, kind, object_key, mime_type, size_bytes, sha256,
-             scan_status, created_at
-           ) VALUES ($1,$2,$3,'original',$4,$5,$6,$7,'pending',$8)`,
+             scan_status, storage_upload_id, upload_expires_at, upload_state, created_at
+           ) VALUES ($1,$2,$3,'original',$4,$5,$6,$7,'pending',$8,$9,
+             CASE WHEN $8::text IS NULL THEN NULL ELSE 'initiated'::source_asset_upload_state END,$10)`,
           [input.assetId, context.workspaceId, input.versionId, input.objectKey, input.mimeType,
-            input.size, input.sha256, createdAt],
+            input.size, input.sha256, input.storageUploadId ?? null, input.uploadExpiresAt ?? null, createdAt],
         );
         await query("UPDATE documents SET current_version_id = $1 WHERE id = $2", [input.versionId, input.documentId]);
         const row = await readByIdempotencyKey(query, context.workspaceId, input.idempotencyKey);
         if (!row) throw new Error("document_create_no_result");
         return { status: "created", document: fromRow(row) };
+      });
+    },
+
+    async findUploadDraft(
+      context: DocumentContext,
+      idempotencyKey: string,
+      requestHash: string,
+    ): Promise<DocumentRecord | undefined> {
+      if (!idempotencyKey || idempotencyKey.length > 200 || !hash(requestHash)) {
+        throw new Error("invalid_document_idempotency_key");
+      }
+      return runtime.withTenant(context, async ({ query }) => {
+        const result = await query<DocumentRow>(
+          `${documentSelect}
+           JOIN workspace_members wm ON wm.workspace_id = d.workspace_id
+             AND wm.learner_id = $3 AND wm.role IN ('owner','editor')
+           WHERE d.workspace_id = $1 AND d.idempotency_key = $2`,
+          [context.workspaceId, idempotencyKey, context.learnerId],
+        );
+        const row = result.rows[0];
+        if (row && row.request_hash !== requestHash) throw new Error("document_idempotency_conflict");
+        return row ? fromRow(row) : undefined;
       });
     },
 
@@ -109,7 +140,8 @@ export function createDocumentModule(runtime: PostgresRuntime, options: { now?: 
 
 const documentSelect = `SELECT d.id, d.workspace_id, d.filename, d.mime_type, d.sha256,
   d.parse_status, d.current_version_id, dv.version, dv.status AS version_status,
-  sa.id AS asset_id, sa.object_key, sa.scan_status, d.created_at, d.request_hash
+  sa.id AS asset_id, sa.object_key, sa.scan_status, sa.size_bytes, sa.storage_upload_id,
+  sa.upload_expires_at, d.created_at, d.request_hash
   FROM documents d
   JOIN document_versions dv ON dv.id = d.current_version_id AND dv.document_id = d.id
   JOIN source_assets sa ON sa.document_version_id = dv.id AND sa.kind = 'original'`;
@@ -146,6 +178,14 @@ function validateUploadDraft(context: DocumentContext, input: UploadDraftInput) 
     throw new Error("invalid_document_idempotency_key");
   }
   if (!hash(input.requestHash)) throw new Error("invalid_document_request_hash");
+  if ((input.storageUploadId === undefined) !== (input.uploadExpiresAt === undefined)) {
+    throw new Error("invalid_document_upload_plan");
+  }
+  if (input.storageUploadId !== undefined
+    && (!input.storageUploadId || input.storageUploadId.length > 1024
+      || !input.uploadExpiresAt || !Number.isFinite(Date.parse(input.uploadExpiresAt)))) {
+    throw new Error("invalid_document_upload_plan");
+  }
   if (input.manualMode !== undefined
     && !["question_bank", "study_material", "mixed", "unknown"].includes(input.manualMode)) {
     throw new Error("invalid_document_mode");
@@ -168,6 +208,9 @@ function fromRow(row: DocumentRow): DocumentRecord {
     assetId: row.asset_id,
     objectKey: row.object_key,
     scanStatus: row.scan_status,
+    sizeBytes: Number(row.size_bytes),
+    ...(row.storage_upload_id ? { storageUploadId: row.storage_upload_id } : {}),
+    ...(row.upload_expires_at ? { uploadExpiresAt: new Date(row.upload_expires_at).toISOString() } : {}),
     createdAt: new Date(row.created_at).toISOString(),
   };
 }

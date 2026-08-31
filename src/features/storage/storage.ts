@@ -24,6 +24,7 @@ export type ObjectMetadata = {
 
 export interface StorageAdapter {
   createUpload(intent: UploadIntent): Promise<UploadPlan>;
+  resumeUpload(intent: UploadIntent, uploadId: string): Promise<UploadPlan>;
   completeUpload(input: { ref: ObjectRef; uploadId: string; parts: CompletedPart[] }): Promise<ObjectMetadata>;
   abortUpload(input: { ref: ObjectRef; uploadId: string }): Promise<void>;
   stat(ref: ObjectRef): Promise<ObjectMetadata>;
@@ -59,6 +60,13 @@ export function createMemoryStorageAdapter(options: {
           url: `memory://${encodeURIComponent(uploadId)}/${partNumber}`,
         })),
       };
+    },
+
+    async resumeUpload(intent, uploadId) {
+      validateUploadIntent(intent);
+      const existing = uploads.get(uploadId);
+      if (!existing || JSON.stringify(existing) !== JSON.stringify(intent)) throw new Error("storage_upload_not_found");
+      return memoryPlan(intent, uploadId, uploadExpiry(now()));
     },
 
     async completeUpload(input) {
@@ -106,6 +114,18 @@ export function createMemoryStorageAdapter(options: {
       }
     },
   };
+
+  function memoryPlan(intent: UploadIntent, uploadId: string, expiresAt: string): UploadPlan {
+    return {
+      uploadId,
+      partSizeBytes: STORAGE_PART_SIZE_BYTES,
+      expiresAt,
+      parts: partNumbers(intent.sizeBytes).map((partNumber) => ({
+        partNumber,
+        url: `memory://${encodeURIComponent(uploadId)}/${partNumber}`,
+      })),
+    };
+  }
 }
 
 export function validateUploadIntent(intent: UploadIntent) {

@@ -88,6 +88,7 @@ async function main() {
     assetId,
     objectKey: request.objectKey,
     scanStatus: "pending",
+    sizeBytes: 1_024_000,
     createdAt: "2026-09-01T10:00:00.000Z",
   });
   assert.equal((await admin.query("SELECT COUNT(*)::int AS count FROM documents")).rows[0]?.count, 1);

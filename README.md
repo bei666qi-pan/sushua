@@ -162,12 +162,19 @@ Phase 1 起，完整测试需要真实 PostgreSQL 17 + pgvector 0.8.6，并通�
 | `DATA_DIR` | SQLite 数据目录 | `./data` |
 | `FEATURE_GUEST_CLAIM` | 开启邮箱 OTP 登录与认领入口；默认失败关闭 | `false` |
 | `FEATURE_WORKSPACE_LIBRARY` | 开启 `/workspaces` 与 Workspace v1 API；默认失败关闭 | `false` |
+| `FEATURE_ASYNC_INGESTION` | 开启 `/api/v1/uploads` 的异步摄取初始化；默认失败关闭 | `false` |
 | `DATABASE_URL` | Phase 1 PostgreSQL 应用连接 | — |
 | `GUEST_SESSION_SECRET` | 游客身份 Cookie 的 HMAC 密钥，至少 32 字节 | — |
 | `BETTER_AUTH_URL` | Better Auth 对外基地址 | — |
 | `BETTER_AUTH_SECRET` | 至少 32 字符的会话签名密钥 | — |
 | `SMTP_URL` | 邮箱 OTP 专用 SMTP 连接 | — |
 | `AUTH_EMAIL_FROM` | OTP 发件人名称和地址 | — |
+| `STORAGE_DRIVER` | Phase 2 对象存储驱动，当前只允许 `s3` | — |
+| `S3_REGION` | S3 region | — |
+| `S3_BUCKET` | 私有对象桶 | — |
+| `S3_ENDPOINT` | S3-compatible endpoint；AWS S3 可省略 | — |
+| `S3_ACCESS_KEY_ID` | S3 access key，只能通过运行时 Secret 注入 | — |
+| `S3_SECRET_ACCESS_KEY` | S3 secret key，只能通过运行时 Secret 注入 | — |
 
 使用独立无 `BYPASSRLS` Web 角色时，迁移任务还需显式授权
 `claim_guest_learner(text)`、`resolve_authenticated_learner(uuid)` 与 legacy Workspace 认领函数；授权步骤记录在
