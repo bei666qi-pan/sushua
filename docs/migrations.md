@@ -8,3 +8,16 @@
 - 每次 migration 记录 Git SHA、执行时间、行数校验和、操作者与结果。
 
 Phase 0 不创建或修改生产 Schema。
+
+## Phase 1 runtime grants
+
+Phase 1 migration owner 应在 Schema 更新后向 Web 角色授予表级最小权限，并单独授予以下安全边界函数；`<web_role>` 必须替换为部署环境实际的、无 `BYPASSRLS` 角色：
+
+```sql
+GRANT USAGE ON SCHEMA public TO <web_role>;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO <web_role>;
+GRANT EXECUTE ON FUNCTION claim_guest_learner(text) TO <web_role>;
+GRANT EXECUTE ON FUNCTION resolve_authenticated_learner(uuid) TO <web_role>;
+```
+
+这些函数都先从事务级 `app.user_id` / `app.learner_id` 读取服务端身份，再验证 Better Auth 用户或 Guest token hash；不能授权给 `PUBLIC`。集成测试使用 `NOBYPASSRLS` 角色重复验证该边界。

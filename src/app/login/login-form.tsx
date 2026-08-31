@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 type Stage = "email" | "otp";
 
-export function LoginForm() {
+export function LoginForm({ returnPath = "/" }: { returnPath?: string }) {
   const router = useRouter();
   const [stage, setStage] = useState<Stage>("email");
   const [email, setEmail] = useState("");
@@ -37,7 +37,7 @@ export function LoginForm() {
         setStage("otp");
         return;
       }
-      router.replace("/");
+      router.replace(returnPath);
       router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "登录失败，请稍后重试");

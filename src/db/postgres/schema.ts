@@ -106,11 +106,16 @@ export const workspaces = pgTable("workspaces", {
   createdByLearnerId: uuid("created_by_learner_id").notNull().references(() => learners.id),
   detectedMode: workspaceMode("detected_mode").notNull().default("unknown"),
   manualMode: workspaceMode("manual_mode"),
+  idempotencyKey: text("idempotency_key"),
+  createRequestHash: text("create_request_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 }, (table) => [
   uniqueIndex("workspaces_slug_unique").on(table.slug),
+  uniqueIndex("workspaces_creator_idempotency_unique")
+    .on(table.createdByLearnerId, table.idempotencyKey)
+    .where(sql`idempotency_key IS NOT NULL`),
   index("workspaces_visibility_created_idx").on(table.visibility, table.createdAt),
 ]);
 
