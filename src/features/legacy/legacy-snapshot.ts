@@ -83,43 +83,52 @@ export function readLegacySnapshotData(snapshotPath: string): {
     assertLegacyTables(snapshot);
     const rowCounts = Object.fromEntries(LEGACY_TABLES.map((table) => [table, countRows(snapshot, table)])) as
       LegacySnapshotReport["rowCounts"];
-    const banks = readBanks(snapshot).map((bank): LegacyBankData => {
-      const questions = readQuestions(snapshot, bank.id).map((question) => ({
-        id: String(question.id),
-        type: question.type,
-        stem: question.stem,
-        options: parseOptions(question.options_json, question.id),
-        answer: question.answer,
-        explanation: question.explanation,
-        sort: question.sort,
-        chapter: question.chapter,
-      }));
-      const canonical = {
-        bank: {
-          id: String(bank.id),
-          slug: bank.slug,
-          title: bank.title,
-          visibility: bank.visibility,
-          ownerKeyHash: bank.owner_key_hash,
-          createdAt: bank.created_at,
-        },
-        questions,
-      };
-      return {
-        legacyBankId: String(bank.id),
-        slug: bank.slug,
-        title: bank.title,
-        visibility: bank.visibility,
-        ownerKeyHash: bank.owner_key_hash,
-        createdAt: bank.created_at,
-        questions,
-        checksum: sha256(JSON.stringify(canonical)),
-      };
-    });
+    const banks = readBanks(snapshot).map((bank) => materializeBank(snapshot, bank));
     return { rowCounts, banks };
   } finally {
     snapshot.close();
   }
+}
+
+export function readLegacyBankData(database: DatabaseSync, slug: string): LegacyBankData | undefined {
+  const bank = database.prepare(
+    "SELECT id, slug, title, visibility, owner_key_hash, created_at FROM banks WHERE slug = ?",
+  ).get(slug) as LegacyBankRow | undefined;
+  return bank ? materializeBank(database, bank) : undefined;
+}
+
+function materializeBank(database: DatabaseSync, bank: LegacyBankRow): LegacyBankData {
+  const questions = readQuestions(database, bank.id).map((question) => ({
+    id: String(question.id),
+    type: question.type,
+    stem: question.stem,
+    options: parseOptions(question.options_json, question.id),
+    answer: question.answer,
+    explanation: question.explanation,
+    sort: question.sort,
+    chapter: question.chapter,
+  }));
+  const canonical = {
+    bank: {
+      id: String(bank.id),
+      slug: bank.slug,
+      title: bank.title,
+      visibility: bank.visibility,
+      ownerKeyHash: bank.owner_key_hash,
+      createdAt: bank.created_at,
+    },
+    questions,
+  };
+  return {
+    legacyBankId: String(bank.id),
+    slug: bank.slug,
+    title: bank.title,
+    visibility: bank.visibility,
+    ownerKeyHash: bank.owner_key_hash,
+    createdAt: bank.created_at,
+    questions,
+    checksum: sha256(JSON.stringify(canonical)),
+  };
 }
 
 function assertLegacyTables(database: DatabaseSync) {

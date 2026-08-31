@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { deleteBank, getBank, getQuestions, isOwner, updateBank } from "@/lib/db";
 import type { Visibility } from "@/lib/types";
+import {
+  captureLegacyBankForShadow,
+  deleteLegacyBankShadow,
+  syncLegacyBankShadow,
+} from "@/features/legacy/legacy-shadow-server";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +46,8 @@ export async function PATCH(req: Request, ctx: Ctx) {
   if (typeof body.title === "string" && body.title.trim()) fields.title = body.title.trim().slice(0, 80);
   if (["private", "unlisted", "public"].includes(body.visibility ?? "")) fields.visibility = body.visibility as Visibility;
   updateBank(bank.id, fields);
-  return NextResponse.json({ ok: true });
+  const shadowSync = await syncLegacyBankShadow(slug);
+  return NextResponse.json({ ok: true, ...(shadowSync ? { shadow_sync: shadowSync } : {}) });
 }
 
 export async function DELETE(req: Request, ctx: Ctx) {
@@ -51,6 +57,8 @@ export async function DELETE(req: Request, ctx: Ctx) {
   if (!isOwner(bank, req.headers.get("x-owner-key"))) {
     return NextResponse.json({ error: "无管理权限" }, { status: 403 });
   }
+  const shadowBank = captureLegacyBankForShadow(slug);
   deleteBank(bank.id);
-  return NextResponse.json({ ok: true });
+  const shadowSync = await deleteLegacyBankShadow(shadowBank);
+  return NextResponse.json({ ok: true, ...(shadowSync ? { shadow_sync: shadowSync } : {}) });
 }
