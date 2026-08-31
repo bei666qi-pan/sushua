@@ -53,3 +53,15 @@ npm run legacy:backfill -- \
 - 旧 `unlisted` 映射为新 `link`；旧 slug、owner hash、创建时间和完整内容 checksum 保留。
 - 任一 checksum 漂移、slug 占用或非法字段使整批回滚，不能跳过冲突继续发布。
 - 题目与 AI cache 仍由 SQLite 读取；必须等 QuestionVersion/tenant cache Schema 和 reconciliation 完成后再切内容读路径。
+
+## 只读 reconciliation
+
+backfill 后使用同一个不可变快照重新对账：
+
+```bash
+DATABASE_DIRECT_URL=postgresql://... \
+npm run legacy:reconcile -- \
+  --snapshot /受控备份目录/sushua-20260901T000000Z.db
+```
+
+报告逐 Bank 比较 mapping 身份、checksum、owner hash、Workspace 标题/可见性和唯一 owner 不变量。全部一致时退出 0；任一 `missing` 或 `drifted` 退出 2，必须阻断读切换。该命令只读，不会自动补写或修正 PostgreSQL；差异必须回到快照、backfill 或应用写路径查根因。
