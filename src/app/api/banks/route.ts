@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createBank, listPublicBanks } from "@/lib/db";
 import type { DraftQuestion, Visibility } from "@/lib/types";
+import { syncLegacyBankShadow } from "@/features/legacy/legacy-shadow-server";
 
 export const dynamic = "force-dynamic";
 
@@ -37,5 +38,6 @@ export async function POST(req: Request) {
   if (clean.length === 0) return NextResponse.json({ error: "没有有效题目" }, { status: 400 });
 
   const { slug, ownerKey } = createBank(title, visibility, clean);
-  return NextResponse.json({ slug, ownerKey });
+  const shadowSync = await syncLegacyBankShadow(slug);
+  return NextResponse.json({ slug, ownerKey, ...(shadowSync ? { shadow_sync: shadowSync } : {}) });
 }

@@ -12,5 +12,8 @@ Phase 0 只建立注册表。Phase 1 开始由页面和 API 消费开关；关�
 
 | Flag | Phase 1 开启范围 | 关闭行为 | 数据保留 |
 |---|---|---|---|
+| `postgres_shadow_write` | 旧 `POST /api/banks`、`PATCH/DELETE /api/banks/[slug]` 在 SQLite 主写成功后镜像 Workspace/mapping；仅在 `0007`、函数授权、基线 backfill 和 reconciliation 就绪后开启 | 完全保持旧 SQLite 响应和读写行为，不初始化 PostgreSQL；不包含 `shadow_sync` 响应字段 | 已镜像 Workspace/mapping 保留，关闭 Flag 不回删 |
 | `guest_claim` | 邮箱 OTP、游客 bootstrap、Workspace 认领、旧 `/b/[slug]` owner key 认领 | `/login`、`/api/auth/*`、认领 API 为 404；不初始化 Auth/Guest/legacy claim 服务 | 已有用户、游客与 legacy mapping 保留 |
 | `workspace_library` | `/workspaces`、`GET/POST /api/v1/workspaces` | 页面和 API 为 404；旧 `/b/[slug]` 不变 | 已有 Workspace 保留 |
+
+`postgres_shadow_write` 开启时，SQLite 仍是旧 Bank 和 Question 的唯一主事实源。镜像成功时旧写接口附带 `shadow_sync.state=synced`；PostgreSQL 权限、连接或事务失败时，SQLite 写仍返回成功并附带 `shadow_sync.state=pending_reconciliation`。调用方不得因此重放已经成功的 SQLite 创建；发布方必须用新的不可变 Online Backup 运行 reconciliation，并在任何 `missing` / `drifted` 存在时阻断读切换。

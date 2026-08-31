@@ -20,6 +20,8 @@ GRANT EXECUTE ON FUNCTION claim_guest_learner(text) TO <web_role>;
 GRANT EXECUTE ON FUNCTION resolve_authenticated_learner(uuid) TO <web_role>;
 GRANT EXECUTE ON FUNCTION claim_legacy_workspace(text) TO <web_role>;
 GRANT EXECUTE ON FUNCTION claim_legacy_workspace_by_slug(text, text) TO <web_role>;
+GRANT EXECUTE ON FUNCTION shadow_sync_legacy_workspace(text, text, text, text, text, text, timestamptz, uuid, uuid) TO <web_role>;
+GRANT EXECUTE ON FUNCTION shadow_delete_legacy_workspace(text, text) TO <web_role>;
 ```
 
-这些函数都先从事务级 `app.user_id` / `app.learner_id` 读取服务端身份，再验证 Better Auth 用户或 Guest token hash；不能授权给 `PUBLIC`。集成测试使用 `NOBYPASSRLS` 角色重复验证该边界。
+认领函数从事务级 `app.user_id` / `app.learner_id` 读取服务端身份，并验证 Better Auth 用户、Guest token hash 或 legacy owner hash。shadow write 函数只接收旧 SQLite 已提交记录派生出的字段、owner hash 与 checksum，不接收原始 owner key；它们同样不能授权给 `PUBLIC`。集成测试使用 `NOBYPASSRLS` Web 角色验证显式授权、未授权降级和跨表原子性。

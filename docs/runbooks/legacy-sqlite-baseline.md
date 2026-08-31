@@ -65,3 +65,30 @@ npm run legacy:reconcile -- \
 ```
 
 报告逐 Bank 比较 mapping 身份、checksum、owner hash、Workspace 标题/可见性和唯一 owner 不变量。全部一致时退出 0；任一 `missing` 或 `drifted` 退出 2，必须阻断读切换。该命令只读，不会自动补写或修正 PostgreSQL；差异必须回到快照、backfill 或应用写路径查根因。
+
+## 旧 Bank shadow write 灰度
+
+完成初始 backfill 和零差异 reconciliation 后，先执行 `0007_legacy_shadow_write.sql`，再由 migration owner 仅向实际 Web 角色授予两个 shadow 函数的 `EXECUTE`。确认 Web 角色无 `BYPASSRLS`、`PUBLIC` 无函数权限后，才可在受控环境开启：
+
+```bash
+FEATURE_POSTGRES_SHADOW_WRITE=true
+```
+
+开启后的写入顺序固定为：
+
+1. 旧 API 完成原有 owner key 校验和 SQLite create/update/delete。
+2. 服务端从已提交的 SQLite Bank 读取完整 canonical 内容；原始 owner key 不进入 PostgreSQL、URL、日志或响应。
+3. PostgreSQL 在一个 SECURITY DEFINER 函数事务中创建或更新 placeholder Learner、Workspace、唯一 owner 和 mapping；相同 checksum 重放返回 `replayed`。
+4. 镜像成功时响应包含 `shadow_sync.state=synced`；镜像失败时 SQLite 主写不回滚，响应包含 `pending_reconciliation`，服务端只记录固定事件码、operation 和 slug。
+
+`pending_reconciliation` 不是失败的 SQLite 创建，也不是可以让客户端安全重试的 5xx。运营侧必须保存该响应/事件，创建新的 SQLite Online Backup，并运行只读 reconciliation。任何 `missing` 或 `drifted` 都阻断 PostgreSQL 读切换；对账工具不会自动修复差异。
+
+每轮灰度至少验证：
+
+- Flag 关闭时旧响应无 `shadow_sync`，且缺少 `DATABASE_URL` 也能正常写 SQLite。
+- create、PATCH 和 DELETE 的 SQLite 结果与 PostgreSQL mapping/Workspace 一致。
+- PostgreSQL 函数权限被撤销时，SQLite 仍成功且响应明确为 `pending_reconciliation`。
+- 新 Online Backup 中已同步 Bank 为 `matched`，pending Bank 为 `missing`；对账退出码可阻断后续读切换。
+- 已绑定 Better Auth 用户的 Learner 不会因删除旧 Bank 而被回收。
+
+回滚只关闭 `FEATURE_POSTGRES_SHADOW_WRITE`。关闭后旧 API 立即恢复纯 SQLite 行为，已写 PostgreSQL 数据保留供后续对账；禁止在回滚时删除它们。此阶段没有 QuestionVersion，题目内容和全部旧读路径仍使用 SQLite。
