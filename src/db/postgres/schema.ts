@@ -2,9 +2,12 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   index,
+  integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -19,6 +22,17 @@ export const workspaceMode = pgEnum("workspace_mode", [
   "study_material",
   "mixed",
   "unknown",
+]);
+export const jobType = pgEnum("job_type", ["file.scan", "document.parse", "document.cleanup"]);
+export const jobState = pgEnum("job_state", [
+  "queued",
+  "running",
+  "succeeded",
+  "partially_succeeded",
+  "failed",
+  "dead_lettered",
+  "cancel_requested",
+  "cancelled",
 ]);
 
 export const users = pgTable("users", {
@@ -160,6 +174,39 @@ export const legacyBankMappings = pgTable("legacy_bank_mappings", {
     .where(sql`claimed_by_learner_id IS NOT NULL`),
 ]);
 
+export const jobs = pgTable("jobs", {
+  id: uuid("id").primaryKey(),
+  schemaVersion: smallint("schema_version").notNull().default(1),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  learnerId: uuid("learner_id").references(() => learners.id, { onDelete: "set null" }),
+  resourceId: uuid("resource_id").notNull(),
+  type: jobType("type").notNull(),
+  state: jobState("state").notNull().default("queued"),
+  idempotencyKey: text("idempotency_key").notNull(),
+  requestHash: text("request_hash").notNull(),
+  traceId: uuid("trace_id").notNull(),
+  priority: smallint("priority").notNull().default(0),
+  budget: jsonb("budget").notNull().default({}),
+  progress: jsonb("progress").notNull(),
+  checkpoint: jsonb("checkpoint"),
+  attempt: integer("attempt").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull(),
+  runAfter: timestamp("run_after", { withTimezone: true }).notNull(),
+  timeoutAt: timestamp("timeout_at", { withTimezone: true }),
+  errorCode: text("error_code"),
+  cancelReason: text("cancel_reason"),
+  requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+}, (table) => [
+  uniqueIndex("jobs_workspace_type_idempotency_unique").on(table.workspaceId, table.type, table.idempotencyKey),
+  index("jobs_workspace_created_idx").on(table.workspaceId, table.requestedAt, table.id),
+  index("jobs_runnable_idx")
+    .on(table.state, table.runAfter, table.priority, table.requestedAt, table.id)
+    .where(sql`state IN ('queued', 'cancel_requested')`),
+]);
+
 export const postgresSchema = {
   users,
   authSessions,
@@ -171,4 +218,5 @@ export const postgresSchema = {
   workspaceMembers,
   workspaceShares,
   legacyBankMappings,
+  jobs,
 };

@@ -9,9 +9,9 @@
 
 Phase 0 不创建或修改生产 Schema。
 
-## Phase 1 runtime grants
+## Runtime grants
 
-Phase 1 migration owner 应在 Schema 更新后向 Web 角色授予表级最小权限，并单独授予以下安全边界函数；`<web_role>` 必须替换为部署环境实际的、无 `BYPASSRLS` 角色：
+Migration owner 应在 Schema 更新后向 Web 角色授予表级最小权限，并单独授予以下安全边界函数；`<web_role>` 必须替换为部署环境实际的、无 `BYPASSRLS` 角色：
 
 ```sql
 GRANT USAGE ON SCHEMA public TO <web_role>;
@@ -22,6 +22,8 @@ GRANT EXECUTE ON FUNCTION claim_legacy_workspace(text) TO <web_role>;
 GRANT EXECUTE ON FUNCTION claim_legacy_workspace_by_slug(text, text) TO <web_role>;
 GRANT EXECUTE ON FUNCTION shadow_sync_legacy_workspace(text, text, text, text, text, text, timestamptz, uuid, uuid) TO <web_role>;
 GRANT EXECUTE ON FUNCTION shadow_delete_legacy_workspace(text, text) TO <web_role>;
+GRANT EXECUTE ON FUNCTION submit_job_v1(uuid, uuid, text, uuid, text, text, integer, jsonb, integer, uuid, uuid, timestamptz) TO <web_role>;
+GRANT EXECUTE ON FUNCTION request_job_cancel(uuid, text) TO <web_role>;
 ```
 
 认领函数从事务级 `app.user_id` / `app.learner_id` 读取服务端身份，并验证 Better Auth 用户、Guest token hash 或 legacy owner hash。shadow write 函数只接收旧 SQLite 已提交记录派生出的字段、owner hash 与 checksum，不接收原始 owner key；它们同样不能授权给 `PUBLIC`。集成测试使用 `NOBYPASSRLS` Web 角色验证显式授权、未授权降级和跨表原子性。
@@ -31,6 +33,7 @@ Worker 角色只获得后台任务所需函数，不继承 Web 角色权限。Ph
 ```sql
 GRANT USAGE ON SCHEMA public TO <worker_role>;
 GRANT EXECUTE ON FUNCTION purge_expired_guest_learners(timestamptz, integer) TO <worker_role>;
+GRANT EXECUTE ON FUNCTION transition_job_v1(uuid, text, jsonb, jsonb, text, timestamptz, timestamptz) TO <worker_role>;
 ```
 
-`purge_expired_guest_learners` 保持 `PUBLIC` 权限撤销；Worker 无需获得租户表的直接 `DELETE` 权限。
+这些后台函数保持 `PUBLIC` 权限撤销；Worker 无需获得租户表或 `jobs` 的直接 `UPDATE` / `DELETE` 权限。Web 读取 `jobs` 时仍通过强制 RLS，并需要已有的 `workspace_members` 读权限供策略判断成员身份。
