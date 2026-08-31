@@ -3,7 +3,8 @@ import { v7 as uuidv7 } from "uuid";
 import { parseJobEnvelope, type JobEnvelope, type JobType } from "@sushua/job-contracts";
 import type { PostgresRuntime } from "@/db/postgres/runtime";
 
-type JobContext = { learnerId: string; workspaceId: string };
+type JobActor = { learnerId: string; userId?: string };
+type JobContext = JobActor & { workspaceId: string };
 type JobRequest = {
   type: JobType;
   resourceId: string;
@@ -106,9 +107,9 @@ export function createJobModule(runtime: PostgresRuntime, options: {
       });
     },
 
-    async read(context: JobContext, jobId: string): Promise<JobSnapshot | undefined> {
+    async read(actor: JobActor, jobId: string): Promise<JobSnapshot | undefined> {
       assertUuid(jobId, "invalid_job_id");
-      return runtime.withTenant(context, async ({ query }) => {
+      return runtime.withTenant(actor, async ({ query }) => {
         const result = await query<RawJob>("SELECT * FROM jobs WHERE id = $1", [jobId]);
         return result.rows[0] ? snapshotFromRaw(result.rows[0]) : undefined;
       });
@@ -137,10 +138,10 @@ export function createJobModule(runtime: PostgresRuntime, options: {
       });
     },
 
-    async requestCancel(context: JobContext, jobId: string, reason: string): Promise<JobSnapshot> {
+    async requestCancel(actor: JobActor, jobId: string, reason: string): Promise<JobSnapshot> {
       assertUuid(jobId, "invalid_job_id");
       if (!reason || reason.length > 120) throw new Error("invalid_job_cancel_reason");
-      return runtime.withTenant(context, async ({ query }) => {
+      return runtime.withTenant(actor, async ({ query }) => {
         const result = await query<{ result: RawJob }>(
           "SELECT request_job_cancel($1,$2) AS result",
           [jobId, reason],
