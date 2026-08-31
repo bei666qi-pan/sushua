@@ -120,7 +120,12 @@ function parseCapability(value: string): ParsedCapability | undefined {
   const [version, learnerId, proof, signature] = parts;
   if (version !== COOKIE_VERSION || !learnerId || !proof || !signature) return undefined;
   if (!UUID_PATTERN.test(learnerId) || !PROOF_PATTERN.test(proof) || !PROOF_PATTERN.test(signature)) return undefined;
+  if (!isCanonicalBase64Url(proof) || !isCanonicalBase64Url(signature)) return undefined;
   return { learnerId, proof, signature, body: `${version}.${learnerId}.${proof}` };
+}
+
+function isCanonicalBase64Url(value: string): boolean {
+  return Buffer.from(value, "base64url").toString("base64url") === value;
 }
 
 function hasValidSignature(capability: ParsedCapability, secret: string): boolean {

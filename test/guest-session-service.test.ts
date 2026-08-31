@@ -76,7 +76,12 @@ async function main() {
   console.log("  ✓ 认领边界只返回已验证 Learner 与数据库 token hash");
 
   console.log("伪造与过期隔离");
-  const forged = `${first.cookieValue.slice(0, -1)}${first.cookieValue.endsWith("a") ? "b" : "a"}`;
+  const forged = nonCanonicalEquivalentSignature(first.cookieValue);
+  assert.notEqual(forged, first.cookieValue);
+  assert.deepEqual(
+    Buffer.from(forged.split(".").at(-1) ?? "", "base64url"),
+    Buffer.from(first.cookieValue.split(".").at(-1) ?? "", "base64url"),
+  );
   const replacementForForgery = await sessions.ensure(forged);
   assert.notEqual(replacementForForgery.learnerId, first.learnerId);
   console.log("  ✓ 签名被篡改时不会复用原 Learner");
@@ -102,6 +107,15 @@ async function main() {
   await runtime.close();
   await admin.end();
   console.log("\n全部通过 ✓");
+}
+
+function nonCanonicalEquivalentSignature(cookieValue: string) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const last = cookieValue.at(-1) ?? "";
+  const index = alphabet.indexOf(last);
+  assert.notEqual(index, -1);
+  const replacement = alphabet[(index & 0b111100) | ((index + 1) & 0b000011)];
+  return `${cookieValue.slice(0, -1)}${replacement}`;
 }
 
 main().catch((error) => {
