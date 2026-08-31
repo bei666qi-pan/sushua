@@ -27,6 +27,20 @@
 | Playwright | 95,416 Star；1.62.1；当日活跃 | Apache-2.0 | 选定为后续真实浏览器 E2E；Phase 0 不安装浏览器或伪造空 E2E 通过。 |
 | Promptfoo | 24,693 Star；0.122.2；当日活跃 | MIT | 选定为 Phase 4 AI Eval；Phase 0 只建立不调用模型的 Golden Corpus 接口。 |
 
+## Phase 1 data and identity snapshot
+
+2026-08-31 复核：
+
+| 组件 | 快照 | 许可 | 决定与安全结论 |
+|---|---|---|---|
+| Better Auth | 29,772 Star；1.7.2；2026-08-30 活跃 | MIT | 精确固定 1.7.2。当前 PR 只建立兼容的数据边界，不提前启用 organization、SSO、SCIM 或密码注册；邮箱 OTP 在独立认证 PR 接入。 |
+| Drizzle ORM | 35,639 Star；0.45.2；2026-08-28 活跃 | Apache-2.0 | 精确固定已修复的 0.45.2；Schema 使用 Drizzle 类型，RLS 与角色仍由双审 SQL migration 管理。 |
+| pgvector | 22,836 Star；0.8.6；2026-08-20 活跃 | PostgreSQL License | 测试容器固定 `0.8.6-pg17` digest；Phase 1 只验证 extension 和租户 Schema，不建立 HNSW。 |
+| node-postgres | 13,199 Star；8.23.0；2026-08-18 活跃 | MIT | 用于 transaction-mode 连接与参数化 `set_config`；每次请求必须在同一事务内设置租户上下文。 |
+| uuid | 15,321 Star；14.0.2；2026-08-18 活跃 | MIT | 应用侧生成 UUIDv7，避免数据库往返和随机 UUID 索引离散。 |
+
+生产审计为 0 vulnerabilities。Drizzle Kit 会带入未使用的旧 esbuild loader，因此本增量不安装它；migration 由带 SHA 校验的 SQL runner 执行。
+
 ## Review policy
 
 - npm 包全部精确固定；lockfile 由 `npm ci` 验证可复现。

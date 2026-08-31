@@ -19,5 +19,10 @@
 | Node.js | 24 Alpine image digest `sha256:e67514e…a7a4eaf` | MIT | https://github.com/nodejs/node |
 | Alpine Linux | 3.24 image packages | package-specific open source licenses | https://www.alpinelinux.org |
 | OpenSSL | 3.5.8-r0 Alpine packages | Apache-2.0 | https://www.openssl.org |
+| Better Auth | 1.7.2 | MIT | https://github.com/better-auth/better-auth |
+| Drizzle ORM | 0.45.2 | Apache-2.0 | https://github.com/drizzle-team/drizzle-orm |
+| node-postgres | 8.23.0 | MIT | https://github.com/brianc/node-postgres |
+| uuid | 14.0.2 | MIT | https://github.com/uuidjs/uuid |
+| pgvector | 0.8.6 | PostgreSQL License | https://github.com/pgvector/pgvector |
 
 各软件版权归其贡献者所有，并按上游许可证提供。本文件不改变任何上游许可证条款。
