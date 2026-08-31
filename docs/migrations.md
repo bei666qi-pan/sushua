@@ -25,3 +25,12 @@ GRANT EXECUTE ON FUNCTION shadow_delete_legacy_workspace(text, text) TO <web_rol
 ```
 
 认领函数从事务级 `app.user_id` / `app.learner_id` 读取服务端身份，并验证 Better Auth 用户、Guest token hash 或 legacy owner hash。shadow write 函数只接收旧 SQLite 已提交记录派生出的字段、owner hash 与 checksum，不接收原始 owner key；它们同样不能授权给 `PUBLIC`。集成测试使用 `NOBYPASSRLS` Web 角色验证显式授权、未授权降级和跨表原子性。
+
+Worker 角色只获得后台任务所需函数，不继承 Web 角色权限。Phase 1 游客保留清理需要：
+
+```sql
+GRANT USAGE ON SCHEMA public TO <worker_role>;
+GRANT EXECUTE ON FUNCTION purge_expired_guest_learners(timestamptz, integer) TO <worker_role>;
+```
+
+`purge_expired_guest_learners` 保持 `PUBLIC` 权限撤销；Worker 无需获得租户表的直接 `DELETE` 权限。
