@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readdir } from "node:fs/promises";
+import path from "node:path";
 import { Pool } from "pg";
 import { v7 as uuidv7 } from "uuid";
 import { applyPostgresMigrations } from "../src/db/postgres/migrate";
@@ -27,8 +29,10 @@ async function prepareDatabase() {
   await applyPostgresMigrations(adminPool);
   await applyPostgresMigrations(adminPool);
 
+  const migrationDirectory = path.join(process.cwd(), "src/db/postgres/migrations");
+  const expectedMigrationCount = (await readdir(migrationDirectory)).filter((name) => name.endsWith(".sql")).length;
   const migrations = await adminPool.query<{ count: string }>("SELECT COUNT(*) AS count FROM schema_migrations");
-  assert.equal(migrations.rows[0]?.count, "1");
+  assert.equal(migrations.rows[0]?.count, String(expectedMigrationCount));
   console.log("  ✓ migration 可幂等重跑且不重复记录");
 
   await adminPool.query(`
