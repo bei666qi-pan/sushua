@@ -33,7 +33,7 @@
 
 | 组件 | 快照 | 许可 | 决定与安全结论 |
 |---|---|---|---|
-| Better Auth | 29,772 Star；1.7.2；2026-08-30 活跃 | MIT | 精确固定 1.7.2。当前 PR 只建立兼容的数据边界，不提前启用 organization、SSO、SCIM 或密码注册；邮箱 OTP 在独立认证 PR 接入。 |
+| Better Auth | 29,772 Star；v1.7.2；2026-08-30 活跃；2026-08-31 复核 | MIT | 精确固定 1.7.2。邮箱 OTP 仅启用哈希存储、5 分钟有效期、3 次尝试和每分钟 3 次限流；organization、SSO、SCIM、密码注册和恢复均关闭。当前仍覆盖 1.7.2 的 high 公告 GHSA-fmh4-wcc4-5jm3 只在启用 organization 邀请且允许未验证邮箱会话等条件同时成立时受影响，本配置不启用该插件且 OTP 登录验证邮箱。上游 Adapter 默认会把持久化 token 返回给 cookie，因此采用 ADR 0003 的哈希 Adapter，并用真实 PostgreSQL 验证发送 OTP→验证→建会话→读取→登出因果链。 |
 | Drizzle ORM | 35,639 Star；0.45.2；2026-08-28 活跃 | Apache-2.0 | 精确固定已修复的 0.45.2；Schema 使用 Drizzle 类型，RLS 与角色仍由双审 SQL migration 管理。 |
 | pgvector | 22,836 Star；0.8.6；2026-08-20 活跃 | PostgreSQL License | 测试容器固定 `0.8.6-pg17` digest；Phase 1 只验证 extension 和租户 Schema，不建立 HNSW。 |
 | node-postgres | 13,199 Star；8.23.0；2026-08-18 活跃 | MIT | 用于 transaction-mode 连接与参数化 `set_config`；每次请求必须在同一事务内设置租户上下文。 |
