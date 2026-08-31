@@ -34,6 +34,9 @@ type DocumentRecord = {
   sizeBytes: number;
   storageUploadId?: string;
   uploadExpiresAt?: string;
+  uploadState?: "initiated" | "uploaded" | "aborted";
+  completionIdempotencyKey?: string;
+  completionRequestHash?: string;
   createdAt: string;
 };
 type DocumentRow = {
@@ -52,8 +55,23 @@ type DocumentRow = {
   size_bytes: string | number;
   storage_upload_id: string | null;
   upload_expires_at: Date | string | null;
+  upload_state: DocumentRecord["uploadState"] | null;
+  completion_idempotency_key: string | null;
+  completion_request_hash: string | null;
   created_at: Date | string;
   request_hash: string;
+};
+type UploadCompletionInput = {
+  assetId: string;
+  storageUploadId: string;
+  sizeBytes: number;
+  sha256: string;
+  mimeType: string;
+  idempotencyKey: string;
+  requestHash: string;
+  jobRequestHash: string;
+  jobId: string;
+  traceId: string;
 };
 
 export function createDocumentModule(runtime: PostgresRuntime, options: { now?: () => Date } = {}) {
@@ -128,6 +146,64 @@ export function createDocumentModule(runtime: PostgresRuntime, options: { now?: 
       });
     },
 
+    async findUploadByAsset(actor: DocumentActor, assetId: string): Promise<DocumentRecord | undefined> {
+      assertUuidV7(actor.learnerId, "invalid_document_learner");
+      assertUuidV7(assetId, "invalid_document_asset_id");
+      return runtime.withTenant(actor, async ({ query }) => {
+        const result = await query<DocumentRow>(
+          `${documentSelect}
+           JOIN workspace_members wm ON wm.workspace_id = d.workspace_id
+             AND wm.learner_id = $2 AND wm.role IN ('owner','editor')
+           WHERE sa.id = $1`,
+          [assetId, actor.learnerId],
+        );
+        return result.rows[0] ? fromRow(result.rows[0]) : undefined;
+      });
+    },
+
+    async completeUpload(context: DocumentContext, input: UploadCompletionInput): Promise<{
+      status: "created" | "replayed";
+      job: { id: string; resourceId: string; type: "file.scan"; state: string };
+    }> {
+      validateUploadCompletion(context, input);
+      const completedAt = now();
+      if (!Number.isFinite(completedAt.getTime())) throw new Error("invalid_document_timestamp");
+      return runtime.withTenant(context, async ({ query }) => {
+        const result = await query<{ result: { status: "created" | "replayed"; job: Record<string, unknown> } }>(
+          "SELECT complete_source_upload_v1($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) AS result",
+          [
+            input.assetId,
+            context.workspaceId,
+            context.learnerId,
+            input.storageUploadId,
+            input.sizeBytes,
+            input.sha256,
+            input.mimeType,
+            input.idempotencyKey,
+            input.requestHash,
+            input.jobRequestHash,
+            input.jobId,
+            input.traceId,
+            completedAt,
+          ],
+        );
+        const row = result.rows[0]?.result;
+        if (!row) throw new Error("upload_complete_no_result");
+        if (row.status !== "created" && row.status !== "replayed") {
+          throw new Error("invalid_upload_completion_result");
+        }
+        return {
+          status: row.status,
+          job: {
+            id: stringField(row.job.id, "invalid_upload_completion_job"),
+            resourceId: stringField(row.job.resource_id, "invalid_upload_completion_job"),
+            type: literalFileScan(row.job.type),
+            state: stringField(row.job.state, "invalid_upload_completion_job"),
+          },
+        };
+      });
+    },
+
     async read(actor: DocumentActor, documentId: string): Promise<DocumentRecord | undefined> {
       assertUuidV7(documentId, "invalid_document_id");
       return runtime.withTenant(actor, async ({ query }) => {
@@ -141,7 +217,8 @@ export function createDocumentModule(runtime: PostgresRuntime, options: { now?: 
 const documentSelect = `SELECT d.id, d.workspace_id, d.filename, d.mime_type, d.sha256,
   d.parse_status, d.current_version_id, dv.version, dv.status AS version_status,
   sa.id AS asset_id, sa.object_key, sa.scan_status, sa.size_bytes, sa.storage_upload_id,
-  sa.upload_expires_at, d.created_at, d.request_hash
+  sa.upload_expires_at, sa.upload_state, sa.completion_idempotency_key,
+  sa.completion_request_hash, d.created_at, d.request_hash
   FROM documents d
   JOIN document_versions dv ON dv.id = d.current_version_id AND dv.document_id = d.id
   JOIN source_assets sa ON sa.document_version_id = dv.id AND sa.kind = 'original'`;
@@ -194,6 +271,27 @@ function validateUploadDraft(context: DocumentContext, input: UploadDraftInput) 
   if (input.objectKey !== expectedKey) throw new Error("invalid_document_object_key");
 }
 
+function validateUploadCompletion(context: DocumentContext, input: UploadCompletionInput) {
+  assertUuidV7(context.learnerId, "invalid_document_learner");
+  assertUuidV7(context.workspaceId, "invalid_document_workspace");
+  assertUuidV7(input.assetId, "invalid_document_asset_id");
+  assertUuidV7(input.jobId, "invalid_upload_job_id");
+  assertUuidV7(input.traceId, "invalid_upload_trace_id");
+  if (!input.storageUploadId || input.storageUploadId.length > 1024) throw new Error("invalid_storage_upload_id");
+  if (!Number.isSafeInteger(input.sizeBytes) || input.sizeBytes < 1 || input.sizeBytes > 200 * 1024 * 1024) {
+    throw new Error("invalid_document_size");
+  }
+  if (!hash(input.sha256) || !hash(input.requestHash) || !hash(input.jobRequestHash)) {
+    throw new Error("invalid_upload_completion_hash");
+  }
+  if (!/^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/.test(input.mimeType)) {
+    throw new Error("invalid_document_mime_type");
+  }
+  if (!input.idempotencyKey || input.idempotencyKey !== input.idempotencyKey.trim() || input.idempotencyKey.length > 200) {
+    throw new Error("invalid_document_idempotency_key");
+  }
+}
+
 function fromRow(row: DocumentRow): DocumentRecord {
   return {
     id: row.id,
@@ -211,8 +309,21 @@ function fromRow(row: DocumentRow): DocumentRecord {
     sizeBytes: Number(row.size_bytes),
     ...(row.storage_upload_id ? { storageUploadId: row.storage_upload_id } : {}),
     ...(row.upload_expires_at ? { uploadExpiresAt: new Date(row.upload_expires_at).toISOString() } : {}),
+    ...(row.upload_state ? { uploadState: row.upload_state } : {}),
+    ...(row.completion_idempotency_key ? { completionIdempotencyKey: row.completion_idempotency_key } : {}),
+    ...(row.completion_request_hash ? { completionRequestHash: row.completion_request_hash } : {}),
     createdAt: new Date(row.created_at).toISOString(),
   };
+}
+
+function stringField(value: unknown, code: string): string {
+  if (typeof value !== "string") throw new Error(code);
+  return value;
+}
+
+function literalFileScan(value: unknown): "file.scan" {
+  if (value !== "file.scan") throw new Error("invalid_upload_completion_job");
+  return value;
 }
 
 function assertUuidV7(value: string, code: string) {

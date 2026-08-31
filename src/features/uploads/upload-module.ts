@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
 import { v7 as uuidv7 } from "uuid";
 import { createDocumentModule } from "@/features/documents/document-module";
-import type { StorageAdapter, UploadIntent } from "@/features/storage/storage";
+import {
+  validateCompletedParts,
+  type CompletedPart,
+  type ObjectMetadata,
+  type StorageAdapter,
+  type UploadIntent,
+} from "@/features/storage/storage";
 
 type DocumentModule = ReturnType<typeof createDocumentModule>;
 type UploadContext = { learnerId: string; userId?: string; workspaceId: string };
@@ -11,6 +17,13 @@ export type UploadInitInput = {
   mimeType: string;
   sha256: string;
   mode?: "question_bank" | "study_material" | "mixed" | "unknown";
+  idempotencyKey: string;
+};
+export type UploadCompleteInput = {
+  assetId: string;
+  uploadId: string;
+  sha256: string;
+  parts: CompletedPart[];
   idempotencyKey: string;
 };
 
@@ -75,7 +88,82 @@ export function createUploadModule(input: {
         throw error;
       }
     },
+
+    async complete(actor: { learnerId: string; userId?: string }, request: UploadCompleteInput) {
+      const parts = validateCompletedParts(request.parts);
+      const completionRequestHash = hashJson({
+        assetId: request.assetId,
+        uploadId: request.uploadId,
+        sha256: request.sha256,
+        parts,
+      });
+      const document = await input.documents.findUploadByAsset(actor, request.assetId);
+      if (!document || !document.storageUploadId) throw new Error("upload_not_found");
+      if (document.storageUploadId !== request.uploadId || document.sha256 !== request.sha256) {
+        throw new Error("upload_metadata_mismatch");
+      }
+
+      let metadata: ObjectMetadata;
+      if (document.uploadState === "uploaded") {
+        metadata = metadataFromDocument(document);
+      } else {
+        if (document.uploadState !== "initiated") throw new Error("upload_not_completable");
+        metadata = await input.storage.completeUpload({
+          ref: { key: document.objectKey },
+          uploadId: request.uploadId,
+          parts,
+        });
+      }
+      assertMetadata(document, metadata);
+      return input.documents.completeUpload({
+        ...actor,
+        workspaceId: document.workspaceId,
+      }, {
+        assetId: request.assetId,
+        storageUploadId: request.uploadId,
+        sizeBytes: metadata.sizeBytes,
+        sha256: metadata.sha256,
+        mimeType: metadata.mimeType,
+        idempotencyKey: request.idempotencyKey,
+        requestHash: completionRequestHash,
+        jobRequestHash: hashJson({
+          type: "file.scan",
+          resourceId: request.assetId,
+          priority: 0,
+          budget: {},
+          maxAttempts: 2,
+        }),
+        jobId: newId(),
+        traceId: newId(),
+      });
+    },
   };
+}
+
+function metadataFromDocument(document: {
+  objectKey: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+}): ObjectMetadata {
+  return {
+    ref: { key: document.objectKey },
+    mimeType: document.mimeType,
+    sizeBytes: document.sizeBytes,
+    sha256: document.sha256,
+  };
+}
+
+function assertMetadata(
+  document: { objectKey: string; mimeType: string; sizeBytes: number; sha256: string },
+  metadata: ObjectMetadata,
+) {
+  if (metadata.ref.key !== document.objectKey
+    || metadata.mimeType !== document.mimeType
+    || metadata.sizeBytes !== document.sizeBytes
+    || metadata.sha256 !== document.sha256) {
+    throw new Error("upload_metadata_mismatch");
+  }
 }
 
 function intentFromDocument(document: {
@@ -97,11 +185,15 @@ async function abortQuietly(storage: StorageAdapter, intent: UploadIntent, uploa
 }
 
 function hashRequest(input: UploadInitInput) {
-  return createHash("sha256").update(JSON.stringify({
+  return hashJson({
     filename: input.filename,
     size: input.size,
     mimeType: input.mimeType,
     sha256: input.sha256,
     mode: input.mode ?? null,
-  })).digest("hex");
+  });
+}
+
+function hashJson(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }

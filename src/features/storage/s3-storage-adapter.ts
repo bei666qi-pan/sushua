@@ -96,14 +96,18 @@ export function createS3StorageAdapter(input: {
       validateObjectRef(completion.ref);
       if (!completion.uploadId || completion.uploadId.length > 1024) throw new Error("invalid_storage_upload_id");
       const parts = validateCompletedParts(completion.parts);
-      await client.send(new CompleteMultipartUploadCommand({
-        Bucket: input.bucket,
-        Key: completion.ref.key,
-        UploadId: completion.uploadId,
-        MultipartUpload: {
-          Parts: parts.map((part) => ({ PartNumber: part.partNumber, ETag: part.etag })),
-        },
-      }));
+      try {
+        await client.send(new CompleteMultipartUploadCommand({
+          Bucket: input.bucket,
+          Key: completion.ref.key,
+          UploadId: completion.uploadId,
+          MultipartUpload: {
+            Parts: parts.map((part) => ({ PartNumber: part.partNumber, ETag: part.etag })),
+          },
+        }));
+      } catch (error) {
+        if (!isNoSuchUpload(error)) throw error;
+      }
       return stat(completion.ref);
     },
 
@@ -182,4 +186,8 @@ function isNotFound(error: unknown) {
   if (!error || typeof error !== "object") return false;
   const candidate = error as { name?: unknown; $metadata?: { httpStatusCode?: unknown } };
   return candidate.name === "NotFound" || candidate.$metadata?.httpStatusCode === 404;
+}
+
+function isNoSuchUpload(error: unknown) {
+  return !!error && typeof error === "object" && "name" in error && error.name === "NoSuchUpload";
 }

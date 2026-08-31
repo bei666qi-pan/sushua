@@ -1,9 +1,62 @@
 import { v7 as uuidv7 } from "uuid";
 import type { CurrentIdentity } from "@/features/auth/current-identity";
-import { createUploadModule, type UploadInitInput } from "./upload-module";
+import {
+  createUploadModule,
+  type UploadCompleteInput,
+  type UploadInitInput,
+} from "./upload-module";
 
 type UploadModule = ReturnType<typeof createUploadModule>;
 type IdentityResolver = { resolve(request: Request): Promise<CurrentIdentity> };
+
+export function createUploadCompleteHandler(input: {
+  enabled: boolean;
+  identity?: IdentityResolver;
+  uploads?: UploadModule;
+}) {
+  return async (request: Request, assetId: string): Promise<Response> => {
+    if (!input.enabled) return apiError(404, "not_found", "Not found", false);
+    const idempotencyKey = request.headers.get("idempotency-key")?.trim();
+    if (!idempotencyKey || idempotencyKey.length > 200) {
+      return apiError(400, "idempotency_key_required", "需要有效的 Idempotency-Key", false);
+    }
+    if (!uuidV7(assetId)) return apiError(400, "invalid_asset_id", "Upload id 无效", false);
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return apiError(400, "invalid_json", "请求格式错误", false);
+    }
+    const parsed = parseCompleteBody(body, assetId, idempotencyKey);
+    if ("error" in parsed) return apiError(400, parsed.error, parsed.message, false);
+    if (!input.identity || !input.uploads) throw new Error("upload_complete_dependencies_unavailable");
+    const current = await input.identity.resolve(request);
+    try {
+      const result = await input.uploads.complete({
+        learnerId: current.learnerId,
+        ...(current.kind === "user" ? { userId: current.userId } : {}),
+      }, parsed.upload);
+      const job = result.job;
+      return withIdentityCookie(Response.json({
+        data: {
+          job_id: job.id,
+          resource_id: job.resourceId,
+          type: job.type,
+          state: job.state,
+          status_url: `/api/v1/jobs/${job.id}`,
+          stream_url: `/api/v1/jobs/${job.id}/stream`,
+        },
+        meta: {
+          request_id: uuidv7(),
+          schema_version: "sushua.api.v1",
+          idempotent_replay: result.status === "replayed",
+        },
+      }, { status: 202 }), current);
+    } catch (error) {
+      return withIdentityCookie(uploadCompleteError(error), current);
+    }
+  };
+}
 
 export function createUploadInitHandler(input: {
   enabled: boolean;
@@ -93,12 +146,60 @@ function parseBody(body: unknown, idempotencyKey: string):
   };
 }
 
+function parseCompleteBody(body: unknown, assetId: string, idempotencyKey: string):
+  | { upload: UploadCompleteInput }
+  | { error: string; message: string } {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return { error: "invalid_body", message: "请求正文无效" };
+  const value = body as Record<string, unknown>;
+  const allowed = new Set(["upload_id", "sha256", "parts"]);
+  if (Object.keys(value).some((key) => !allowed.has(key))) return { error: "invalid_body", message: "请求包含未支持字段" };
+  const uploadId = typeof value.upload_id === "string" ? value.upload_id : "";
+  const sha256 = typeof value.sha256 === "string" ? value.sha256 : "";
+  if (!uploadId || uploadId.length > 1024) return { error: "invalid_upload_id", message: "Storage upload id 无效" };
+  if (!/^[0-9a-f]{64}$/.test(sha256)) return { error: "invalid_sha256", message: "SHA256 无效" };
+  if (!Array.isArray(value.parts) || value.parts.length < 1 || value.parts.length > 10_000) {
+    return { error: "invalid_parts", message: "分片清单无效" };
+  }
+  const parts: UploadCompleteInput["parts"] = [];
+  for (const raw of value.parts) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { error: "invalid_parts", message: "分片清单无效" };
+    const part = raw as Record<string, unknown>;
+    if (Object.keys(part).some((key) => key !== "part_number" && key !== "etag")
+      || !Number.isInteger(part.part_number)
+      || (part.part_number as number) < 1
+      || typeof part.etag !== "string"
+      || !part.etag.trim()
+      || part.etag.length > 256) {
+      return { error: "invalid_parts", message: "分片清单无效" };
+    }
+    parts.push({ partNumber: part.part_number as number, etag: part.etag });
+  }
+  parts.sort((left, right) => left.partNumber - right.partNumber);
+  if (parts.some((part, index) => part.partNumber !== index + 1)) {
+    return { error: "invalid_parts", message: "分片清单无效" };
+  }
+  return { upload: { assetId, uploadId, sha256, parts, idempotencyKey } };
+}
+
 function uploadError(error: unknown) {
   const code = error instanceof Error ? error.message : "upload_init_failed";
   if (code === "document_idempotency_conflict") return apiError(409, "idempotency_conflict", "该幂等键已用于不同请求", false);
   if (isPgPermission(error)) return apiError(404, "workspace_not_found", "Workspace not found", false);
   if (code.startsWith("invalid_")) return apiError(400, code, "上传参数无效", false);
   return apiError(503, "upload_init_failed", "上传初始化失败", true);
+}
+
+function uploadCompleteError(error: unknown) {
+  const code = error instanceof Error ? error.message : "upload_complete_failed";
+  if (code === "upload_not_found") return apiError(404, code, "Upload not found", false);
+  if (code === "upload_completion_idempotency_conflict") {
+    return apiError(409, "idempotency_conflict", "该幂等键已用于不同完成请求", false);
+  }
+  if (code === "upload_metadata_mismatch" || code === "upload_not_completable") {
+    return apiError(409, code, "上传状态或对象元数据不匹配", false);
+  }
+  if (code.startsWith("invalid_")) return apiError(400, code, "上传完成参数无效", false);
+  return apiError(503, "upload_complete_failed", "上传完成确认失败", true);
 }
 
 function isPgPermission(error: unknown) {

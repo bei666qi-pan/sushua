@@ -298,6 +298,8 @@ export const sourceAssets = pgTable("source_assets", {
   uploadExpiresAt: timestamp("upload_expires_at", { withTimezone: true }),
   uploadState: sourceAssetUploadState("upload_state"),
   uploadCompletedAt: timestamp("upload_completed_at", { withTimezone: true }),
+  completionIdempotencyKey: text("completion_idempotency_key"),
+  completionRequestHash: text("completion_request_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
 }, (table) => [
   uniqueIndex("source_assets_workspace_object_unique").on(table.workspaceId, table.objectKey),
