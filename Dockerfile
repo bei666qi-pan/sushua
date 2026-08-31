@@ -6,6 +6,8 @@ FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
 RUN npm config set registry https://registry.npmmirror.com
 COPY package.json package-lock.json ./
+# npm workspaces 必须在 npm ci 时已经存在,否则不会创建 workspace symlink。
+COPY packages ./packages
 # Coolify 会把运行时 env(含 NODE_ENV=production)注入为 build ARG,
 # 显式 --include=dev 保证 typescript/tailwind 等构建依赖始终安装
 RUN npm ci --include=dev --no-audit --no-fund
