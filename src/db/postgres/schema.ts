@@ -31,6 +31,49 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [uniqueIndex("users_email_unique").on(table.email)]);
 
+export const authSessions = pgTable("auth_sessions", {
+  id: uuid("id").primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  token: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("auth_sessions_token_hash_unique").on(table.token),
+  index("auth_sessions_user_expires_idx").on(table.userId, table.expiresAt),
+]);
+
+export const authAccounts = pgTable("auth_accounts", {
+  id: uuid("id").primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  issuer: text("issuer").notNull(),
+  accountId: text("account_id").notNull(),
+  providerId: text("provider_id").notNull(),
+  accessToken: text("access_token_ciphertext"),
+  refreshToken: text("refresh_token_ciphertext"),
+  idToken: text("id_token_ciphertext"),
+  accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
+  scope: text("scope"),
+  password: text("password_hash"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("auth_accounts_issuer_unique").on(table.issuer, table.accountId),
+  index("auth_accounts_user_idx").on(table.userId),
+]);
+
+export const authVerifications = pgTable("auth_verifications", {
+  id: uuid("id").primaryKey(),
+  identifier: text("identifier").notNull(),
+  value: text("value_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("auth_verifications_identifier_expires_idx").on(table.identifier, table.expiresAt)]);
+
 export const learners = pgTable("learners", {
   id: uuid("id").primaryKey(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -109,6 +152,9 @@ export const legacyBankMappings = pgTable("legacy_bank_mappings", {
 
 export const postgresSchema = {
   users,
+  authSessions,
+  authAccounts,
+  authVerifications,
   learners,
   guestSessions,
   workspaces,
