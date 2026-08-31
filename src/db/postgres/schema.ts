@@ -150,9 +150,14 @@ export const legacyBankMappings = pgTable("legacy_bank_mappings", {
   ownerKeyHash: text("owner_key_hash").notNull(),
   checksum: text("checksum").notNull(),
   migratedAt: timestamp("migrated_at", { withTimezone: true }).notNull().defaultNow(),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  claimedByLearnerId: uuid("claimed_by_learner_id").references(() => learners.id, { onDelete: "set null" }),
 }, (table) => [
   uniqueIndex("legacy_bank_mappings_slug_unique").on(table.legacySlug),
   uniqueIndex("legacy_bank_mappings_workspace_unique").on(table.workspaceId),
+  index("legacy_bank_mappings_claimed_by_idx")
+    .on(table.claimedByLearnerId)
+    .where(sql`claimed_by_learner_id IS NOT NULL`),
 ]);
 
 export const postgresSchema = {

@@ -12,5 +12,5 @@ Phase 0 只建立注册表。Phase 1 开始由页面和 API 消费开关；关�
 
 | Flag | Phase 1 开启范围 | 关闭行为 | 数据保留 |
 |---|---|---|---|
-| `guest_claim` | 邮箱 OTP、游客 bootstrap、Workspace 认领 | `/login`、`/api/auth/*`、认领 API 为 404；不初始化 Auth/Guest 服务 | 已有用户与游客记录保留 |
+| `guest_claim` | 邮箱 OTP、游客 bootstrap、Workspace 认领、旧 `/b/[slug]` owner key 认领 | `/login`、`/api/auth/*`、认领 API 为 404；不初始化 Auth/Guest/legacy claim 服务 | 已有用户、游客与 legacy mapping 保留 |
 | `workspace_library` | `/workspaces`、`GET/POST /api/v1/workspaces` | 页面和 API 为 404；旧 `/b/[slug]` 不变 | 已有 Workspace 保留 |

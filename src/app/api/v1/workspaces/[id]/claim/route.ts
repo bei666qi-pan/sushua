@@ -3,6 +3,7 @@ import { getGuestClaimServer, getGuestSessionServer } from "@/features/auth/gues
 import { createWorkspaceClaimHandler } from "@/features/workspace/claim-api";
 import { getWorkspaceServer } from "@/features/workspace/server";
 import { isFeatureEnabled } from "@/lib/feature-flags";
+import { getLegacyClaimServer, getLearnerResolutionServer } from "@/features/legacy/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     guests: enabled ? getGuestSessionServer() : undefined,
     claims: enabled ? getGuestClaimServer() : undefined,
     workspaces: enabled ? getWorkspaceServer() : undefined,
+    legacyClaims: enabled ? getLegacyClaimServer() : undefined,
+    learners: enabled ? getLearnerResolutionServer() : undefined,
   });
   return handler(request, (await context.params).id);
 }

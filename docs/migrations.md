@@ -18,6 +18,8 @@ GRANT USAGE ON SCHEMA public TO <web_role>;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO <web_role>;
 GRANT EXECUTE ON FUNCTION claim_guest_learner(text) TO <web_role>;
 GRANT EXECUTE ON FUNCTION resolve_authenticated_learner(uuid) TO <web_role>;
+GRANT EXECUTE ON FUNCTION claim_legacy_workspace(text) TO <web_role>;
+GRANT EXECUTE ON FUNCTION claim_legacy_workspace_by_slug(text, text) TO <web_role>;
 ```
 
 这些函数都先从事务级 `app.user_id` / `app.learner_id` 读取服务端身份，再验证 Better Auth 用户或 Guest token hash；不能授权给 `PUBLIC`。集成测试使用 `NOBYPASSRLS` 角色重复验证该边界。

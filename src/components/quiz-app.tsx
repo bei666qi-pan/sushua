@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Question, Visibility } from "@/lib/types";
 import { TYPE_LABEL } from "@/lib/types";
 import { AiExplain } from "./ai-explain";
+import { LegacyBankClaimPanel } from "./legacy-bank-claim-panel";
 import { forgetBank, rememberBank } from "./my-banks";
 
 interface BankData {
@@ -48,7 +49,15 @@ function normalizeJudge(s: string): string {
   return t;
 }
 
-export function QuizApp({ slug }: { slug: string }) {
+export function QuizApp({
+  slug,
+  legacyClaimEnabled = false,
+  pendingLegacyClaim = false,
+}: {
+  slug: string;
+  legacyClaimEnabled?: boolean;
+  pendingLegacyClaim?: boolean;
+}) {
   const router = useRouter();
   const [data, setData] = useState<BankData | null>(null);
   const [loadErr, setLoadErr] = useState("");
@@ -58,7 +67,7 @@ export function QuizApp({ slug }: { slug: string }) {
   const [pendingSel, setPendingSel] = useState<string[]>([]); // 多选暂存
   const [fillInput, setFillInput] = useState("");
   const [createdBanner, setCreatedBanner] = useState(false);
-  const [showManage, setShowManage] = useState(false);
+  const [showManage, setShowManage] = useState(pendingLegacyClaim);
   const [answersOnly, setAnswersOnly] = useState(false);
   const [memoVisible, setMemoVisible] = useState(60);
   const [keyword, setKeyword] = useState("");
@@ -73,6 +82,7 @@ export function QuizApp({ slug }: { slug: string }) {
     // 先清掉上一个题库的 Tab / 章节筛选,避免串到新题库上
     setTab("quiz");
     setChapterFilter("");
+    setShowManage(pendingLegacyClaim);
     const ownerKey = localStorage.getItem(`sushua:owner:${slug}`) ?? "";
     fetch(`/api/banks/${slug}`, { headers: ownerKey ? { "x-owner-key": ownerKey } : {} })
       .then(async (res) => {
@@ -108,7 +118,7 @@ export function QuizApp({ slug }: { slug: string }) {
       setCreatedBanner(true);
       window.history.replaceState(null, "", window.location.pathname);
     }
-  }, [slug]);
+  }, [slug, pendingLegacyClaim]);
 
   const persist = useCallback(
     (p: Progress) => {
@@ -411,6 +421,9 @@ export function QuizApp({ slug }: { slug: string }) {
 
         {showManage && data.isOwner && (
           <div className="fade-up mt-4 rounded-xl border border-line bg-card p-4">
+            {legacyClaimEnabled ? (
+              <LegacyBankClaimPanel slug={slug} pendingAfterLogin={pendingLegacyClaim} />
+            ) : null}
             <label className="text-xs font-medium text-ink-soft">题库名称</label>
             <div className="mt-1 flex gap-2">
               <input
