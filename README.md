@@ -151,6 +151,8 @@ npm run audit    # 生产依赖 HIGH/CRITICAL 门禁
 npm run ci:verify
 ```
 
+Phase 1 起，完整测试需要真实 PostgreSQL 17 + pgvector 0.8.6，并通过 `TEST_DATABASE_URL` 指定测试库。集成测试会重建该数据库的 `public` schema，禁止指向开发或生产数据库。
+
 架构基线见 [领域词汇](CONTEXT.md)、[ADR](docs/adr/README.md)、[OSS 决策](docs/oss-decisions.md) 和 [Feature Flags](docs/feature-flags.md)。Phase 0 的新能力开关全部默认关闭，不改变现有页面和 API 行为。
 
 | 环境变量 | 说明 | 默认 |
