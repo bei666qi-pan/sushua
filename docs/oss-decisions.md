@@ -38,6 +38,7 @@
 | pgvector | 22,836 Star；0.8.6；2026-08-20 活跃 | PostgreSQL License | 测试容器固定 `0.8.6-pg17` digest；Phase 1 只验证 extension 和租户 Schema，不建立 HNSW。 |
 | node-postgres | 13,199 Star；8.23.0；2026-08-18 活跃 | MIT | 用于 transaction-mode 连接与参数化 `set_config`；每次请求必须在同一事务内设置租户上下文。 |
 | uuid | 15,321 Star；14.0.2；2026-08-18 活跃 | MIT | 应用侧生成 UUIDv7，避免数据库往返和随机 UUID 索引离散。 |
+| Nodemailer | 17,663 Star；v9.1.0；2026-08-31 发布并活跃 | MIT-0 | 在 `guest_claim` Flag 开启时通过受控 `SMTP_URL` 投递邮箱 OTP；精确固定 9.1.0。两个已发布 high 公告分别影响 ≤9.0.0 和 ≤7.0.10，当前版本均已修复。邮件只含登录验证码和有效期，不记录 OTP 或 SMTP 凭证。 |
 
 生产审计为 0 vulnerabilities。Drizzle Kit 会带入未使用的旧 esbuild loader，因此本增量不安装它；migration 由带 SHA 校验的 SQL runner 执行。
 

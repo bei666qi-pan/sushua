@@ -160,6 +160,12 @@ Phase 1 起，完整测试需要真实 PostgreSQL 17 + pgvector 0.8.6，并通�
 | `DEEPSEEK_API_KEY` | AI 功能密钥(不配则 AI 降级关闭) | — |
 | `DEEPSEEK_MODEL` | 模型名 | `deepseek-v4-flash` |
 | `DATA_DIR` | SQLite 数据目录 | `./data` |
+| `FEATURE_GUEST_CLAIM` | 开启邮箱 OTP 登录与认领入口；默认失败关闭 | `false` |
+| `DATABASE_URL` | Phase 1 PostgreSQL 应用连接 | — |
+| `BETTER_AUTH_URL` | Better Auth 对外基地址 | — |
+| `BETTER_AUTH_SECRET` | 至少 32 字符的会话签名密钥 | — |
+| `SMTP_URL` | 邮箱 OTP 专用 SMTP 连接 | — |
+| `AUTH_EMAIL_FROM` | OTP 发件人名称和地址 | — |
 
 ## 🗺 Roadmap
 

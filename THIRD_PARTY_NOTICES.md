@@ -24,5 +24,6 @@
 | node-postgres | 8.23.0 | MIT | https://github.com/brianc/node-postgres |
 | uuid | 14.0.2 | MIT | https://github.com/uuidjs/uuid |
 | pgvector | 0.8.6 | PostgreSQL License | https://github.com/pgvector/pgvector |
+| Nodemailer | 9.1.0 | MIT-0 | https://github.com/nodemailer/nodemailer |
 
 各软件版权归其贡献者所有，并按上游许可证提供。本文件不改变任何上游许可证条款。
