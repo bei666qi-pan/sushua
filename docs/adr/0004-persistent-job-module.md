@@ -13,6 +13,7 @@ Phase 2 将引入文件扫描、文档解析和清理等异步任务。若 Web�
 - Job Module 的外部 interface 只有 `submit`、`read`、`apply` 和 `requestCancel`。幂等 hash、UUIDv7、状态转换、attempt、checkpoint、RLS 和数据库函数都隐藏在 module 内。
 - PostgreSQL `jobs` 是唯一事实源。Redis/BullMQ 后续 Adapter 只携带 Job ID 与最小 Envelope，不保存文件或原文；Worker 必须从持久 Job 重新读取 `workspace_id`。
 - Web 只能通过 SECURITY DEFINER 函数提交和请求取消，并通过强制 RLS 读取。owner/editor 可提交或取消，viewer 只能读取。
+- 读取和取消的 interface 只接收服务端解析的 Learner 与 Job ID；调用方不得传入或猜测 Workspace ID，PostgreSQL 从持久 Job 取得它并完成成员授权。
 - Worker 只能调用 transition 函数；函数按 Job ID 锁行并从已持久化记录取得租户，不信任队列 payload 中的 Workspace。
 - 状态机固定为 `queued → running → succeeded | partially_succeeded | failed | dead_lettered`，以及 `queued/running → cancel_requested → cancelled`。临时错误可在未耗尽 `max_attempts` 时由 `running → queued`。
 

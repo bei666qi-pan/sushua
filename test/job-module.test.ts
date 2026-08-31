@@ -59,8 +59,6 @@ async function main() {
   const webJobs = jobsModule.createJobModule(webRuntime, { now, newId: uuidv7 });
   const workerJobs = jobsModule.createJobModule(workerRuntime, { now, newId: uuidv7 });
   const contextA = { learnerId: learnerA, workspaceId: workspaceA };
-  const contextB = { learnerId: learnerB, workspaceId: workspaceB };
-  const contextViewer = { learnerId: learnerViewer, workspaceId: workspaceA };
   const request = {
     type: "document.parse" as const,
     resourceId: uuidv7(),
@@ -105,10 +103,10 @@ async function main() {
   );
   console.log("  ✓ submit 生成 UUIDv7 Envelope；相同请求重放同一 Job，不同正文冲突");
 
-  const visibleA = await webJobs.read(contextA, created.envelope.id);
+  const visibleA = await webJobs.read({ learnerId: learnerA }, created.envelope.id);
   assert.equal(visibleA?.state, "queued");
-  assert.equal(await webJobs.read(contextB, created.envelope.id), undefined);
-  console.log("  ✓ Job 读取受 Workspace/Learner RLS 隔离");
+  assert.equal(await webJobs.read({ learnerId: learnerB }, created.envelope.id), undefined);
+  console.log("  ✓ Job 只依据服务端 Learner 身份与持久记录受 RLS 隔离");
 
   const started = await workerJobs.apply(created.envelope.id, { type: "start" });
   assert.equal(started.state, "running");
@@ -164,11 +162,11 @@ async function main() {
   console.log("  ✓ Worker 从持久 Job 读取租户并执行 start/progress/retry/succeed 状态机");
 
   const cancellable = await webJobs.submit(contextA, { ...request, idempotencyKey: "parse:cancel", resourceId: uuidv7() });
-  const cancelRequested = await webJobs.requestCancel(contextA, cancellable.envelope.id, "user_requested");
+  const cancelRequested = await webJobs.requestCancel({ learnerId: learnerA }, cancellable.envelope.id, "user_requested");
   assert.equal(cancelRequested.state, "cancel_requested");
-  assert.equal((await webJobs.requestCancel(contextA, cancellable.envelope.id, "user_requested")).state, "cancel_requested");
-  await assert.rejects(() => webJobs.requestCancel(contextB, cancellable.envelope.id, "not_owner"), /job_not_found/);
-  await assert.rejects(() => webJobs.requestCancel(contextViewer, cancellable.envelope.id, "viewer_requested"), /job_not_found/);
+  assert.equal((await webJobs.requestCancel({ learnerId: learnerA }, cancellable.envelope.id, "user_requested")).state, "cancel_requested");
+  await assert.rejects(() => webJobs.requestCancel({ learnerId: learnerB }, cancellable.envelope.id, "not_owner"), /job_not_found/);
+  await assert.rejects(() => webJobs.requestCancel({ learnerId: learnerViewer }, cancellable.envelope.id, "viewer_requested"), /job_not_found/);
   const liveWorkerJobs = jobsModule.createJobModule(workerRuntime, { now: () => new Date(), newId: uuidv7 });
   const cancelled = await liveWorkerJobs.apply(cancellable.envelope.id, { type: "cancel" });
   assert.equal(cancelled.state, "cancelled");
