@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   index,
   integer,
@@ -33,6 +34,34 @@ export const jobState = pgEnum("job_state", [
   "dead_lettered",
   "cancel_requested",
   "cancelled",
+]);
+export const documentParseStatus = pgEnum("document_parse_status", [
+  "uploading",
+  "scan_pending",
+  "parsing",
+  "ready",
+  "failed",
+]);
+export const documentVersionStatus = pgEnum("document_version_status", [
+  "uploading",
+  "scan_pending",
+  "scanned",
+  "parsing",
+  "ready",
+  "failed",
+]);
+export const sourceAssetKind = pgEnum("source_asset_kind", [
+  "original",
+  "rendered_page",
+  "block_image",
+  "formula",
+  "embedded",
+]);
+export const sourceAssetScanStatus = pgEnum("source_asset_scan_status", [
+  "pending",
+  "clean",
+  "infected",
+  "failed",
 ]);
 
 export const users = pgTable("users", {
@@ -207,6 +236,66 @@ export const jobs = pgTable("jobs", {
     .where(sql`state IN ('queued', 'cancel_requested')`),
 ]);
 
+export const documents = pgTable("documents", {
+  id: uuid("id").primaryKey(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  filename: text("filename").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sha256: text("sha256").notNull(),
+  language: text("language"),
+  detectedMode: workspaceMode("detected_mode").notNull().default("unknown"),
+  manualMode: workspaceMode("manual_mode"),
+  parseStatus: documentParseStatus("parse_status").notNull().default("uploading"),
+  currentVersionId: uuid("current_version_id"),
+  idempotencyKey: text("idempotency_key").notNull(),
+  requestHash: text("request_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("documents_workspace_id_unique").on(table.workspaceId, table.id),
+  uniqueIndex("documents_workspace_idempotency_unique").on(table.workspaceId, table.idempotencyKey),
+  index("documents_workspace_created_idx").on(table.workspaceId, table.createdAt, table.id),
+  index("documents_active_idx").on(table.workspaceId, table.createdAt, table.id).where(sql`deleted_at IS NULL`),
+]);
+
+export const documentVersions = pgTable("document_versions", {
+  id: uuid("id").primaryKey(),
+  workspaceId: uuid("workspace_id").notNull(),
+  documentId: uuid("document_id").notNull().references(() => documents.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  sourceObjectKey: text("source_object_key").notNull(),
+  contentHash: text("content_hash").notNull(),
+  parseConfig: jsonb("parse_config").notNull().default({}),
+  irSchemaVersion: text("ir_schema_version").notNull().default("sushua.document-ir.v1"),
+  status: documentVersionStatus("status").notNull().default("uploading"),
+  errorCode: text("error_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+}, (table) => [
+  uniqueIndex("document_versions_document_version_unique").on(table.documentId, table.version),
+  uniqueIndex("document_versions_document_hash_unique").on(table.documentId, table.contentHash),
+  uniqueIndex("document_versions_workspace_document_id_unique").on(table.workspaceId, table.documentId, table.id),
+  uniqueIndex("document_versions_workspace_id_unique").on(table.workspaceId, table.id),
+  index("document_versions_document_created_idx").on(table.documentId, table.createdAt, table.id),
+]);
+
+export const sourceAssets = pgTable("source_assets", {
+  id: uuid("id").primaryKey(),
+  workspaceId: uuid("workspace_id").notNull(),
+  documentVersionId: uuid("document_version_id").notNull().references(() => documentVersions.id, { onDelete: "cascade" }),
+  kind: sourceAssetKind("kind").notNull(),
+  objectKey: text("object_key").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+  sha256: text("sha256").notNull(),
+  scanStatus: sourceAssetScanStatus("scan_status").notNull().default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+}, (table) => [
+  uniqueIndex("source_assets_workspace_object_unique").on(table.workspaceId, table.objectKey),
+  index("source_assets_version_idx").on(table.documentVersionId, table.id),
+  index("source_assets_hash_idx").on(table.workspaceId, table.sha256),
+]);
+
 export const postgresSchema = {
   users,
   authSessions,
@@ -219,4 +308,7 @@ export const postgresSchema = {
   workspaceShares,
   legacyBankMappings,
   jobs,
+  documents,
+  documentVersions,
+  sourceAssets,
 };

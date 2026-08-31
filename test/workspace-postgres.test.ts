@@ -157,12 +157,15 @@ async function main() {
   const rls = await adminPool.query<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>(`
     SELECT relname, relrowsecurity, relforcerowsecurity
     FROM pg_class
-    WHERE relname IN ('learners', 'guest_sessions', 'workspaces', 'workspace_members', 'workspace_shares', 'legacy_bank_mappings')
+    WHERE relname IN (
+      'learners', 'guest_sessions', 'workspaces', 'workspace_members', 'workspace_shares',
+      'legacy_bank_mappings', 'documents', 'document_versions', 'source_assets'
+    )
     ORDER BY relname
   `);
-  assert.equal(rls.rows.length, 6);
+  assert.equal(rls.rows.length, 9);
   assert.ok(rls.rows.every((row) => row.relrowsecurity && row.relforcerowsecurity));
-  console.log("  ✓ 六张租户表全部启用并 FORCE RLS");
+  console.log("  ✓ 九张租户表全部启用并 FORCE RLS");
 
   const role = await adminPool.query<{ rolbypassrls: boolean }>(
     "SELECT rolbypassrls FROM pg_roles WHERE rolname = 'sushua_web_test'",
