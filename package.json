@@ -6,22 +6,36 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "tsx test/breaker.test.ts && tsx test/parser.test.ts"
+    "test": "npm run test:unit && npm run test:golden",
+    "test:unit": "tsx test/breaker.test.ts && tsx test/parser.test.ts && tsx test/feature-flags.test.ts",
+    "test:golden": "tsx test/golden-manifest.test.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "audit": "npm audit --omit=dev --audit-level=high",
+    "ci:verify": "npm run test && npm run typecheck && npm run lint && npm run build && npm run audit"
   },
   "dependencies": {
-    "mammoth": "^1.9.1",
-    "next": "^15.3.4",
+    "mammoth": "1.12.0",
+    "next": "15.5.24",
     "pdf-parse": "1.1.1",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.10",
-    "@types/node": "^22",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "tailwindcss": "^4.1.10",
-    "tsx": "^4.20.3",
-    "typescript": "^5.8.3"
+    "@eslint/eslintrc": "3.3.6",
+    "@tailwindcss/postcss": "4.3.2",
+    "@types/node": "22.20.0",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.2",
+    "eslint-config-next": "15.5.24",
+    "tailwindcss": "4.3.2",
+    "tsx": "4.22.4",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "nanoid": "3.3.18",
+    "postcss": "8.5.23",
+    "sharp": "0.35.3"
   }
 }

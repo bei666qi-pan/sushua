@@ -108,7 +108,6 @@ export function QuizApp({ slug }: { slug: string }) {
       setCreatedBanner(true);
       window.history.replaceState(null, "", window.location.pathname);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
   const persist = useCallback(
