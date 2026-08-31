@@ -42,6 +42,14 @@
 
 生产审计为 0 vulnerabilities。Drizzle Kit 会带入未使用的旧 esbuild loader，因此本增量不安装它；migration 由带 SHA 校验的 SQL runner 执行。
 
+## Phase 2 storage snapshot
+
+2026-09-01 复核：
+
+| 组件 | 快照 | 许可 | 决定与安全结论 |
+|---|---|---|---|
+| AWS SDK for JavaScript v3 | 3,664 Star；2026-08-31 活跃；v3.1122.0 当日发布 | Apache-2.0 | 精确固定 `@aws-sdk/client-s3` 和 `@aws-sdk/s3-request-presigner` 3.1122.0。GitHub 当前无 high/critical repository advisory，本地生产依赖审计为 0。仅用于 5 分钟 S3 multipart 预签名、完成/取消、HeadObject、短期读 URL 和批量删除；对象键必须位于 `tenant/{workspace_id}/...`，元数据只携带 SHA256，不把原文或密钥进入日志。代替：若 S3 multipart 无法满足断点续传，再评估 tusd/Tus；P0 不引入 AGPL MinIO 核心依赖。 |
+
 ## Review policy
 
 - npm 包全部精确固定；lockfile 由 `npm ci` 验证可复现。
