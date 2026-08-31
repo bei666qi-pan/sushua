@@ -1,0 +1,7 @@
+{
+  "$schema": "./manifest.schema.json",
+  "schema_version": "sushua.golden-corpus.v1",
+  "corpus_version": "0.0.0",
+  "updated_at": "2026-08-31T00:00:00.000Z",
+  "samples": []
+}

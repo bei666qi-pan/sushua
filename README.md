@@ -143,9 +143,15 @@ sushua/
 
 ```bash
 npm run dev      # 开发服务器
-npm test         # 小时熔断单测(注入假 usage,23 项断言)
+npm test         # 现有逻辑、Feature Flag 和 Golden manifest
+npm run typecheck
+npm run lint
 npm run build    # 生产构建
+npm run audit    # 生产依赖 HIGH/CRITICAL 门禁
+npm run ci:verify
 ```
+
+架构基线见 [领域词汇](CONTEXT.md)、[ADR](docs/adr/README.md)、[OSS 决策](docs/oss-decisions.md) 和 [Feature Flags](docs/feature-flags.md)。Phase 0 的新能力开关全部默认关闭，不改变现有页面和 API 行为。
 
 | 环境变量 | 说明 | 默认 |
 |---|---|---|

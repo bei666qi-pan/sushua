@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sushua.versecraft.cn/schemas/golden-corpus-v1.json",
+  "title": "SuShua Golden Corpus manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "corpus_version", "updated_at", "samples"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema_version": { "const": "sushua.golden-corpus.v1" },
+    "corpus_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "samples": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "source_type",
+          "fixture_path",
+          "sha256",
+          "license_spdx",
+          "provenance",
+          "expected_ir_path",
+          "expected_questions_path"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "source_type": {
+            "enum": ["native_pdf", "scanned_pdf", "photo", "docx", "pptx", "xlsx", "txt", "markdown", "html"]
+          },
+          "fixture_path": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "license_spdx": { "type": "string", "minLength": 1 },
+          "provenance": { "type": "string", "minLength": 1 },
+          "expected_ir_path": { "type": "string", "minLength": 1 },
+          "expected_questions_path": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

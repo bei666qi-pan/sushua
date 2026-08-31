@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Test, typecheck, lint, build and audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Run verification gate
+        run: npm run ci:verify
+
+  security:
+    name: Secrets, image, SBOM and secondary scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Install pinned Gitleaks CLI
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --location \
+            --output /tmp/gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz" \
+            | sha256sum --check --strict
+          tar --extract --gzip --file /tmp/gitleaks.tar.gz --directory /tmp gitleaks
+
+      - name: Scan Git history for secrets
+        run: /tmp/gitleaks git --redact --no-banner --exit-code 1
+
+      - name: Scan repository with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: "false"
+
+      - name: Build production image
+        run: docker build --tag sushua:${{ github.sha }} .
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          image-ref: sushua:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: "false"
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@006b7ce8314066bdf1765b4500370d40fa6917a3 # v0.24.2
+        with:
+          image: sushua:${{ github.sha }}
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+          syft-version: v1.51.1
+          upload-artifact: "false"
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@006b7ce8314066bdf1765b4500370d40fa6917a3 # v0.24.2
+        with:
+          image: sushua:${{ github.sha }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          syft-version: v1.51.1
+          upload-artifact: "false"
+
+      - name: Scan image with Grype
+        uses: anchore/scan-action@8576240a41341d866dbd7ebc72cd9fc0ef023f54 # v7.4.2
+        with:
+          image: sushua:${{ github.sha }}
+          grype-version: v0.118.0
+          severity-cutoff: high
+          fail-build: "true"
+          output-format: table
+
+      - name: Upload SBOMs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom-${{ github.sha }}
+          path: |
+            sbom.cyclonedx.json
+            sbom.spdx.json
+          if-no-files-found: error
+          retention-days: 30
