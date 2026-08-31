@@ -170,7 +170,7 @@ Phase 1 起，完整测试需要真实 PostgreSQL 17 + pgvector 0.8.6，并通�
 | `AUTH_EMAIL_FROM` | OTP 发件人名称和地址 | — |
 
 使用独立无 `BYPASSRLS` Web 角色时，迁移任务还需显式授权
-`claim_guest_learner(text)` 与 `resolve_authenticated_learner(uuid)`；授权步骤记录在
+`claim_guest_learner(text)`、`resolve_authenticated_learner(uuid)` 与 legacy Workspace 认领函数；授权步骤记录在
 [`docs/migrations.md`](docs/migrations.md)，不得把 migration owner 连接串交给 Web。
 
 ## 🗺 Roadmap
