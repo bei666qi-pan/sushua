@@ -6,6 +6,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   S3Client,
+  type S3ClientConfig,
   UploadPartCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -32,11 +33,12 @@ type Presign = (
 export function createS3StorageAdapter(input: {
   bucket: string;
   client?: S3Transport;
+  clientConfig?: S3ClientConfig;
   presign?: Presign;
   now?: () => Date;
 }): StorageAdapter {
   if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(input.bucket)) throw new Error("invalid_storage_bucket");
-  const client: S3Transport = input.client ?? new S3Client({});
+  const client: S3Transport = input.client ?? new S3Client(input.clientConfig ?? {});
   const presign: Presign = input.presign ?? ((transport, command, options) =>
     getSignedUrl(transport as S3Client, command as UploadPartCommand, options));
   const now = input.now ?? (() => new Date());
@@ -76,6 +78,17 @@ export function createS3StorageAdapter(input: {
         partSizeBytes: STORAGE_PART_SIZE_BYTES,
         expiresAt: uploadExpiry(now()),
         parts,
+      };
+    },
+
+    async resumeUpload(intent, uploadId) {
+      validateUploadIntent(intent);
+      if (!uploadId || uploadId.length > 1024) throw new Error("invalid_storage_upload_id");
+      return {
+        uploadId,
+        partSizeBytes: STORAGE_PART_SIZE_BYTES,
+        expiresAt: uploadExpiry(now()),
+        parts: await signParts(intent.ref.key, intent.sizeBytes, uploadId),
       };
     },
 
@@ -122,6 +135,18 @@ export function createS3StorageAdapter(input: {
       }));
     },
   };
+
+  function signParts(key: string, sizeBytes: number, uploadId: string) {
+    return Promise.all(partNumbers(sizeBytes).map(async (partNumber) => ({
+      partNumber,
+      url: await presign(client, new UploadPartCommand({
+        Bucket: input.bucket,
+        Key: key,
+        UploadId: uploadId,
+        PartNumber: partNumber,
+      }), { expiresIn: STORAGE_UPLOAD_TTL_SECONDS }),
+    })));
+  }
 
   async function stat(ref: { key: string }): Promise<ObjectMetadata> {
     validateObjectRef(ref);

@@ -63,6 +63,11 @@ export const sourceAssetScanStatus = pgEnum("source_asset_scan_status", [
   "infected",
   "failed",
 ]);
+export const sourceAssetUploadState = pgEnum("source_asset_upload_state", [
+  "initiated",
+  "uploaded",
+  "aborted",
+]);
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey(),
@@ -289,9 +294,16 @@ export const sourceAssets = pgTable("source_assets", {
   sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
   sha256: text("sha256").notNull(),
   scanStatus: sourceAssetScanStatus("scan_status").notNull().default("pending"),
+  storageUploadId: text("storage_upload_id"),
+  uploadExpiresAt: timestamp("upload_expires_at", { withTimezone: true }),
+  uploadState: sourceAssetUploadState("upload_state"),
+  uploadCompletedAt: timestamp("upload_completed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
 }, (table) => [
   uniqueIndex("source_assets_workspace_object_unique").on(table.workspaceId, table.objectKey),
+  uniqueIndex("source_assets_workspace_upload_unique")
+    .on(table.workspaceId, table.storageUploadId)
+    .where(sql`storage_upload_id IS NOT NULL`),
   index("source_assets_version_idx").on(table.documentVersionId, table.id),
   index("source_assets_hash_idx").on(table.workspaceId, table.sha256),
 ]);

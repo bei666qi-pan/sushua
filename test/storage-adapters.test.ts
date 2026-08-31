@@ -62,6 +62,10 @@ async function main() {
     { partNumber: 2, url: "https://s3.test/upload-001/2?expires=300" },
     { partNumber: 3, url: "https://s3.test/upload-001/3?expires=300" },
   ]);
+  const resumedPlan = await s3.resumeUpload(intent, plan.uploadId);
+  assert.equal(resumedPlan.uploadId, plan.uploadId);
+  assert.deepEqual(resumedPlan.parts, plan.parts);
+  console.log("  ✓ 幂等重放只为已有 S3 upload ID 重新签发分片 URL");
   const completed = await s3.completeUpload({
     ref: intent.ref,
     uploadId: plan.uploadId,
