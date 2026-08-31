@@ -13,6 +13,28 @@ export type LegacySnapshotReport = {
   banks: Array<{ legacyBankId: string; slug: string; questionCount: number; checksum: string }>;
 };
 
+export type LegacyQuestionData = {
+  id: string;
+  type: string;
+  stem: string;
+  options: unknown[];
+  answer: string;
+  explanation: string;
+  sort: number;
+  chapter: string;
+};
+
+export type LegacyBankData = {
+  legacyBankId: string;
+  slug: string;
+  title: string;
+  visibility: string;
+  ownerKeyHash: string;
+  createdAt: string;
+  questions: LegacyQuestionData[];
+  checksum: string;
+};
+
 export async function createLegacySnapshot(input: {
   sourcePath: string;
   snapshotPath: string;
@@ -36,13 +58,42 @@ export async function createLegacySnapshot(input: {
     source.close();
   }
 
-  const snapshot = new DatabaseSync(snapshotPath, { readOnly: true });
+  const analysis = readLegacySnapshotData(snapshotPath);
+  const bytes = await readFile(snapshotPath);
+  return {
+    snapshotPath,
+    fileSize: bytes.byteLength,
+    sha256: sha256(bytes),
+    rowCounts: analysis.rowCounts,
+    banks: analysis.banks.map((bank) => ({
+      legacyBankId: bank.legacyBankId,
+      slug: bank.slug,
+      questionCount: bank.questions.length,
+      checksum: bank.checksum,
+    })),
+  };
+}
+
+export function readLegacySnapshotData(snapshotPath: string): {
+  rowCounts: LegacySnapshotReport["rowCounts"];
+  banks: LegacyBankData[];
+} {
+  const snapshot = new DatabaseSync(path.resolve(snapshotPath), { readOnly: true });
   try {
     assertLegacyTables(snapshot);
     const rowCounts = Object.fromEntries(LEGACY_TABLES.map((table) => [table, countRows(snapshot, table)])) as
       LegacySnapshotReport["rowCounts"];
-    const banks = readBanks(snapshot).map((bank) => {
-      const questions = readQuestions(snapshot, bank.id);
+    const banks = readBanks(snapshot).map((bank): LegacyBankData => {
+      const questions = readQuestions(snapshot, bank.id).map((question) => ({
+        id: String(question.id),
+        type: question.type,
+        stem: question.stem,
+        options: parseOptions(question.options_json, question.id),
+        answer: question.answer,
+        explanation: question.explanation,
+        sort: question.sort,
+        chapter: question.chapter,
+      }));
       const canonical = {
         bank: {
           id: String(bank.id),
@@ -52,32 +103,20 @@ export async function createLegacySnapshot(input: {
           ownerKeyHash: bank.owner_key_hash,
           createdAt: bank.created_at,
         },
-        questions: questions.map((question) => ({
-          id: String(question.id),
-          type: question.type,
-          stem: question.stem,
-          options: parseOptions(question.options_json, question.id),
-          answer: question.answer,
-          explanation: question.explanation,
-          sort: question.sort,
-          chapter: question.chapter,
-        })),
+        questions,
       };
       return {
         legacyBankId: String(bank.id),
         slug: bank.slug,
-        questionCount: questions.length,
+        title: bank.title,
+        visibility: bank.visibility,
+        ownerKeyHash: bank.owner_key_hash,
+        createdAt: bank.created_at,
+        questions,
         checksum: sha256(JSON.stringify(canonical)),
       };
     });
-    const bytes = await readFile(snapshotPath);
-    return {
-      snapshotPath,
-      fileSize: bytes.byteLength,
-      sha256: sha256(bytes),
-      rowCounts,
-      banks,
-    };
+    return { rowCounts, banks };
   } finally {
     snapshot.close();
   }
