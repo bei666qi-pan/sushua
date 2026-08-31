@@ -161,11 +161,17 @@ Phase 1 起，完整测试需要真实 PostgreSQL 17 + pgvector 0.8.6，并通�
 | `DEEPSEEK_MODEL` | 模型名 | `deepseek-v4-flash` |
 | `DATA_DIR` | SQLite 数据目录 | `./data` |
 | `FEATURE_GUEST_CLAIM` | 开启邮箱 OTP 登录与认领入口；默认失败关闭 | `false` |
+| `FEATURE_WORKSPACE_LIBRARY` | 开启 `/workspaces` 与 Workspace v1 API；默认失败关闭 | `false` |
 | `DATABASE_URL` | Phase 1 PostgreSQL 应用连接 | — |
+| `GUEST_SESSION_SECRET` | 游客身份 Cookie 的 HMAC 密钥，至少 32 字节 | — |
 | `BETTER_AUTH_URL` | Better Auth 对外基地址 | — |
 | `BETTER_AUTH_SECRET` | 至少 32 字符的会话签名密钥 | — |
 | `SMTP_URL` | 邮箱 OTP 专用 SMTP 连接 | — |
 | `AUTH_EMAIL_FROM` | OTP 发件人名称和地址 | — |
+
+使用独立无 `BYPASSRLS` Web 角色时，迁移任务还需显式授权
+`claim_guest_learner(text)` 与 `resolve_authenticated_learner(uuid)`；授权步骤记录在
+[`docs/migrations.md`](docs/migrations.md)，不得把 migration owner 连接串交给 Web。
 
 ## 🗺 Roadmap
 
