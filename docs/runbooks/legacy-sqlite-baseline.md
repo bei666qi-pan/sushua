@@ -27,3 +27,29 @@ npm run legacy:snapshot -- \
 - 目标路径不能与活动数据库相同。
 - 快照完成后，用新进程以只读方式打开备份并重复 SHA256/行数检查。
 - 任何 Bank checksum 不一致都停止 backfill 和读切换；不得修改快照制造一致。
+
+## Workspace mapping dry-run 与提交
+
+先把 PostgreSQL Schema 恢复到一次性 dry-run 数据库，并使用专用连接执行。脚本即使成功也会回滚全部写入：
+
+```bash
+LEGACY_DRY_RUN_DATABASE_URL=postgresql://... \
+npm run legacy:backfill -- --snapshot /受控备份目录/sushua-20260901T000000Z.db
+```
+
+报告中每个 Bank 必须为 `ready` 或同 checksum 的 `replayed`；`questions_pending` 是尚未进入 QuestionVersion 的题目数，Phase 1 禁止把它报告为已迁移内容。
+
+只有快照 SHA256、四表行数、逐 Bank checksum、dry-run 和恢复演练全部通过后，才在 release job 中显式增加 `--commit`：
+
+```bash
+DATABASE_DIRECT_URL=postgresql://... \
+npm run legacy:backfill -- \
+  --snapshot /受控备份目录/sushua-20260901T000000Z.db \
+  --commit
+```
+
+- 未写 `--commit` 时脚本拒绝使用 `DATABASE_DIRECT_URL`，降低误写生产的风险。
+- 正式提交在一个事务中创建 placeholder Learner、Workspace、唯一 owner 和 `legacy_bank_mappings`。
+- 旧 `unlisted` 映射为新 `link`；旧 slug、owner hash、创建时间和完整内容 checksum 保留。
+- 任一 checksum 漂移、slug 占用或非法字段使整批回滚，不能跳过冲突继续发布。
+- 题目与 AI cache 仍由 SQLite 读取；必须等 QuestionVersion/tenant cache Schema 和 reconciliation 完成后再切内容读路径。
