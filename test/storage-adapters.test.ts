@@ -36,6 +36,15 @@ async function main() {
     mimeType: "application/pdf",
     etag: '"memory-complete"',
   });
+  assert.deepEqual(await memory.completeUpload({
+    ref: intent.ref,
+    uploadId: memoryPlan.uploadId,
+    parts: [
+      { partNumber: 1, etag: '"part-1"' },
+      { partNumber: 2, etag: '"part-2"' },
+      { partNumber: 3, etag: '"part-3"' },
+    ],
+  }), memoryObject);
   assert.deepEqual(await memory.stat(intent.ref), memoryObject);
   assert.match(await memory.createReadUrl(intent.ref, 60), /^memory:\/\//);
   await memory.deleteMany([intent.ref]);
@@ -83,6 +92,15 @@ async function main() {
     mimeType: intent.mimeType,
     etag: '"s3-complete"',
   });
+  assert.deepEqual(await s3.completeUpload({
+    ref: intent.ref,
+    uploadId: plan.uploadId,
+    parts: [
+      { partNumber: 1, etag: '"etag-1"' },
+      { partNumber: 2, etag: '"etag-2"' },
+      { partNumber: 3, etag: '"etag-3"' },
+    ],
+  }), completed);
   assert.deepEqual(await s3.stat(intent.ref), completed);
   assert.equal(
     await s3.createReadUrl(intent.ref, 60),
@@ -136,6 +154,7 @@ class FakeS3Transport {
   aborted = false;
   failPresignPart?: number;
   private uploadCount = 0;
+  private completeCount = 0;
 
   constructor(
     private readonly sizeBytes: number,
@@ -150,6 +169,13 @@ class FakeS3Transport {
         this.uploadCount += 1;
         return { UploadId: `upload-${String(this.uploadCount).padStart(3, "0")}` };
       case "CompleteMultipartUploadCommand":
+        this.completeCount += 1;
+        if (this.completeCount > 1) {
+          throw Object.assign(new Error("test_no_such_upload"), {
+            name: "NoSuchUpload",
+            $metadata: { httpStatusCode: 404 },
+          });
+        }
         this.completedPartNumbers = ((command.input.MultipartUpload as { Parts: Array<{ PartNumber: number }> }).Parts)
           .map((part) => part.PartNumber);
         return { ETag: '"s3-complete"' };

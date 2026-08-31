@@ -24,9 +24,10 @@ GRANT EXECUTE ON FUNCTION shadow_sync_legacy_workspace(text, text, text, text, t
 GRANT EXECUTE ON FUNCTION shadow_delete_legacy_workspace(text, text) TO <web_role>;
 GRANT EXECUTE ON FUNCTION submit_job_v1(uuid, uuid, text, uuid, text, text, integer, jsonb, integer, uuid, uuid, timestamptz) TO <web_role>;
 GRANT EXECUTE ON FUNCTION request_job_cancel(uuid, text) TO <web_role>;
+GRANT EXECUTE ON FUNCTION complete_source_upload_v1(uuid, uuid, uuid, text, bigint, text, text, text, text, text, uuid, uuid, timestamptz) TO <web_role>;
 ```
 
-认领函数从事务级 `app.user_id` / `app.learner_id` 读取服务端身份，并验证 Better Auth 用户、Guest token hash 或 legacy owner hash。shadow write 函数只接收旧 SQLite 已提交记录派生出的字段、owner hash 与 checksum，不接收原始 owner key；它们同样不能授权给 `PUBLIC`。集成测试使用 `NOBYPASSRLS` Web 角色验证显式授权、未授权降级和跨表原子性。
+认领函数从事务级 `app.user_id` / `app.learner_id` 读取服务端身份，并验证 Better Auth 用户、Guest token hash 或 legacy owner hash。shadow write 函数只接收旧 SQLite 已提交记录派生出的字段、owner hash 与 checksum，不接收原始 owner key。上传完成函数复核 Learner、Workspace、编辑权限、对象元数据和幂等请求，并在同一事务中推进三层文档状态与创建 `file.scan` Job；这些函数都不能授权给 `PUBLIC`。集成测试使用 `NOBYPASSRLS` Web 角色验证显式授权、未授权降级和跨表原子性。
 
 Worker 角色只获得后台任务所需函数，不继承 Web 角色权限。Phase 1 游客保留清理需要：
 

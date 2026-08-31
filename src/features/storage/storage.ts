@@ -43,6 +43,7 @@ export function createMemoryStorageAdapter(options: {
   const now = options.now ?? (() => new Date());
   const newId = options.newId ?? uuidv7;
   const uploads = new Map<string, UploadIntent>();
+  const completedUploads = new Map<string, string>();
   const objects = new Map<string, ObjectMetadata>();
 
   return {
@@ -72,8 +73,16 @@ export function createMemoryStorageAdapter(options: {
     async completeUpload(input) {
       validateObjectRef(input.ref);
       const intent = uploads.get(input.uploadId);
-      if (!intent || intent.ref.key !== input.ref.key) throw new Error("storage_upload_not_found");
       const parts = validateCompletedParts(input.parts);
+      if (!intent) {
+        const metadata = objects.get(input.ref.key);
+        if (!metadata || completedUploads.get(input.uploadId) !== input.ref.key) {
+          throw new Error("storage_upload_not_found");
+        }
+        if (parts.length !== partNumbers(metadata.sizeBytes).length) throw new Error("invalid_storage_parts");
+        return structuredClone(metadata);
+      }
+      if (intent.ref.key !== input.ref.key) throw new Error("storage_upload_not_found");
       if (parts.length !== partNumbers(intent.sizeBytes).length) throw new Error("invalid_storage_parts");
       const metadata: ObjectMetadata = {
         ref: structuredClone(intent.ref),
@@ -83,6 +92,7 @@ export function createMemoryStorageAdapter(options: {
         etag: '"memory-complete"',
       };
       uploads.delete(input.uploadId);
+      completedUploads.set(input.uploadId, intent.ref.key);
       objects.set(intent.ref.key, metadata);
       return structuredClone(metadata);
     },
