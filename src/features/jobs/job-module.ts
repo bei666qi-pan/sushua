@@ -42,6 +42,7 @@ export type JobClaim = {
   status: "claimed" | "busy" | "not_due" | "ignored";
   job: JobSnapshot;
 };
+export type JobModule = ReturnType<typeof createJobModule>;
 type JobEvent =
   | { type: "start" }
   | { type: "progress"; progress: Omit<JobProgress, "updatedAt">; checkpoint?: Record<string, unknown> }
