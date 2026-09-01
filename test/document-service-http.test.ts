@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createDocumentServiceClient } from "../src/features/documents/document-service-client";
 
 const TOKEN = "document-service-integration-token-0001";
@@ -21,6 +21,7 @@ const HTML_SOURCE = Buffer.from(
   "utf8",
 );
 const HTML_ASSET_ID = "019c9e68-62b6-7f58-a10b-7bbd5532cdd6";
+const DOCX_ASSET_ID = "019c9e68-62b6-7f58-a10b-7bbd5532cdd7";
 
 async function main() {
   const storageRoot = await mkdtemp(path.join(tmpdir(), "sushua-document-service-"));
@@ -36,6 +37,12 @@ async function main() {
     `tenant/${IDS.workspaceId}/${IDS.documentId}/${IDS.documentVersionId}/source/${HTML_ASSET_ID}`
   );
   await writeFile(path.join(storageRoot, ...htmlObjectKey.split("/")), HTML_SOURCE);
+  const docxObjectKey = (
+    `tenant/${IDS.workspaceId}/${IDS.documentId}/${IDS.documentVersionId}/source/${DOCX_ASSET_ID}`
+  );
+  const docxPath = path.join(storageRoot, ...docxObjectKey.split("/"));
+  await createDocx(docxPath);
+  const docxBytes = await readFile(docxPath);
   const sourceBytes = Buffer.from(SOURCE_TEXT, "utf8");
   const sourceSha256 = createHash("sha256").update(sourceBytes).digest("hex");
   const service = startService({ port, storageRoot });
@@ -134,6 +141,23 @@ async function main() {
     assert.match(htmlIr.document.pages[0].blocks[0].markdown, /叶绿体将光能转化为化学能/);
     assert.doesNotMatch(htmlIr.document.pages[0].blocks[0].markdown, /document\.cookie/);
     console.log("  ✓ HTML 经 MarkItDown Adapter 转换并写回不含活动脚本的 IR");
+
+    const docxResult = await client.parse({
+      ...target,
+      sourceAssetId: DOCX_ASSET_ID,
+      sourceObjectKey: docxObjectKey,
+      sourceSha256: createHash("sha256").update(docxBytes).digest("hex"),
+      sizeBytes: docxBytes.byteLength,
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }, new AbortController().signal);
+    assert.equal(docxResult.parser, "markitdown");
+    assert.equal(docxResult.parserVersion, "0.1.7");
+    const docxIr = JSON.parse(
+      await readFile(path.join(storageRoot, ...docxResult.irObjectKey.split("/")), "utf8"),
+    ) as { document: { pages: Array<{ blocks: Array<{ markdown: string }> }> } };
+    assert.match(docxIr.document.pages[0].blocks[0].markdown, /Fallback chapter/);
+    assert.match(docxIr.document.pages[0].blocks[0].markdown, /MarkItDown remains available/);
+    console.log("  ✓ 未配置 Docling 时 DOCX 仍使用 MarkItDown fallback");
 
     const unauthorized = await fetch(`${baseUrl}/v1/parse`, {
       method: "POST",
@@ -247,11 +271,29 @@ function startService(input: { port: number; storageRoot: string }) {
         ...process.env,
         DOCUMENT_SERVICE_TOKEN: TOKEN,
         DOCUMENT_STORAGE_ROOT: input.storageRoot,
+        DOCLING_SERVICE_URL: undefined,
+        DOCLING_SERVICE_TOKEN: undefined,
+        DOCLING_SERVICE_TIMEOUT_SECONDS: undefined,
         PYTHONDONTWRITEBYTECODE: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
+}
+
+function createDocx(target: string) {
+  const script = [
+    "from docx import Document",
+    "import os",
+    "document = Document()",
+    "document.add_heading('Fallback chapter', level=1)",
+    "document.add_paragraph('MarkItDown remains available.')",
+    "document.save(os.environ['TARGET'])",
+  ].join("; ");
+  const result = spawnSync("uv", [
+    "run", "--frozen", "--project", "services/document-worker", "python", "-c", script,
+  ], { cwd: process.cwd(), env: { ...process.env, TARGET: target }, encoding: "utf8" });
+  assert.equal(result.status, 0, `DOCX fixture creation failed: ${result.stderr}`);
 }
 
 async function waitUntilReady(

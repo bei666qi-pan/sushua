@@ -110,6 +110,14 @@
 - Docling 镜像现只暴露内网 `live/ready` 和带服务 token 的 `/v1/convert`；请求只接受租户对象引用、SHA256、长度、MIME 和解析配置，拒绝任意 URL、宿主路径和多余字段。输出为限定键下的 `sushua.docling-output.v1`，尚未接入 Job Worker 的生产解析路由。
 - 两个 Python 文档服务共用仓库内 `sushua-document-service-core` 的严格对象引用与 Local/S3 Adapter，不再复制租户键、SigV4、原子写回和安全错误映射逻辑。该包是本仓库内部代码，不是新的第三方依赖。
 
+2026-09-01 Docling Adapter 增量复核：
+
+- 不新增第三方选型；继续使用已固定的 Docling 2.124.0、MarkItDown 0.1.7、FastAPI 0.141.1、Uvicorn 0.52.4 和 boto3 1.43.85。
+- Document Service 仅在 `DOCLING_SERVICE_URL` 与独立 token 同时完整配置时注册 Docling Adapter；配置缺失或非法时启动失败关闭。未配置时 DOCX 仍由 MarkItDown 处理，PPTX、XLSX 和 HTML 也继续使用 MarkItDown，不扩大本增量的格式承诺。
+- Docling 请求只发送租户对象引用、完整性字段和当前解析配置。Adapter 仅接受精确 HTTP 200，并验证响应大小、严格 Schema、限定输出键、SHA256、文档身份、来源和 parser 版本；拒绝任何 HTTP 重定向并忽略进程代理变量，防止对象引用或内部 token 被带到第二地址；私密正文与 token 不进入日志。
+- 当前只将 Docling DOCX 的标题和正文确定性转为一页逻辑 IR，全页 bbox 和 0.85 置信度不伪造版面真值。如果输出含表格、图片、键值或表单结构，在对应 IR 映射实现前显式返回 `docling_unsupported_structure`，不发布部分 IR。
+- 该增量将 Docling 接入 Document Service 边界，但仍受现有异步摄取 Feature Flag、Job Worker 和部署配置约束；未部署、未镜像到 Gitee，不是线上能力证据。
+
 ## Review policy
 
 - npm 包全部精确固定；lockfile 由 `npm ci` 验证可复现。

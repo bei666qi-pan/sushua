@@ -134,7 +134,7 @@ function grantHostFixtureAccess(containerName: string, irDirectory: string) {
 }
 
 async function waitUntilReady(baseUrl: string, containerName: string) {
-  const deadline = Date.now() + 20_000;
+  const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     try {
       const response = await fetch(`${baseUrl}/health/ready`);

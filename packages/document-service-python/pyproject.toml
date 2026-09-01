@@ -1,6 +1,6 @@
 [project]
 name = "sushua-document-service-core"
-version = "0.1.1"
+version = "0.1.2"
 description = "Shared object-reference contracts and storage adapters for SuShua document services"
 requires-python = ">=3.11,<3.15"
 dependencies = [

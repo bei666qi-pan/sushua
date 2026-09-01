@@ -2502,7 +2502,7 @@ wheels = [
 
 [[package]]
 name = "sushua-document-service-core"
-version = "0.1.1"
+version = "0.1.2"
 source = { directory = "../../packages/document-service-python" }
 dependencies = [
     { name = "boto3" },
