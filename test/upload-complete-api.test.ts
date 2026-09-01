@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Pool } from "pg";
 import { v7 as uuidv7 } from "uuid";
+import type { JobEnvelope } from "@sushua/job-contracts";
 import { applyPostgresMigrations } from "../src/db/postgres/migrate";
 import { createPostgresRuntime } from "../src/db/postgres/runtime";
 import { createDocumentModule } from "../src/features/documents/document-module";
@@ -85,7 +86,21 @@ async function main() {
     newId: () => `complete-upload-${++uploadIndex}`,
   });
   const documents = createDocumentModule(runtime, { now: () => new Date("2026-09-01T14:00:00.000Z") });
-  const uploads = uploadModule.createUploadModule({ documents, storage, newId: uuidv7 });
+  const dispatched = new Map<string, JobEnvelope>();
+  let dispatchCalls = 0;
+  let failNextDispatch = false;
+  const dispatcher = {
+    async dispatch(envelope: JobEnvelope) {
+      dispatchCalls += 1;
+      if (failNextDispatch) {
+        failNextDispatch = false;
+        throw new Error("test_redis_unavailable");
+      }
+      dispatched.set(envelope.id, envelope);
+    },
+    async close() {},
+  };
+  const uploads = uploadModule.createUploadModule({ documents, storage, dispatcher, newId: uuidv7 });
   assert.equal(typeof uploads.complete, "function", "Upload Module must finalize multipart uploads");
   let identityCalls = 0;
   const identity = {
@@ -177,6 +192,14 @@ async function main() {
     version_status: "scan_pending",
   }]);
   assert.equal((await admin.query("SELECT COUNT(*)::int AS count FROM jobs")).rows[0]?.count, 1);
+  const dispatchedJob = dispatched.get(completedBody.data.job_id);
+  assert.ok(dispatchedJob);
+  assert.equal(dispatchedJob.resourceId, assetId);
+  assert.equal(dispatchedJob.type, "file.scan");
+  assert.deepEqual(Object.keys(dispatchedJob).sort(), [
+    "budget", "id", "idempotencyKey", "learnerId", "priority", "requestedAt", "resourceId",
+    "schemaVersion", "traceId", "type", "workspaceId",
+  ].sort());
   console.log("  ✓ 对象校验后原子推进三层状态并创建 file.scan Job");
 
   const replay = await completeHandler(request(owner, completeUrl, completeBody, "complete-linear-001"), assetId);
@@ -185,6 +208,8 @@ async function main() {
   assert.equal(replayBody.data.job_id, completedBody.data.job_id);
   assert.equal(replayBody.meta.idempotent_replay, true);
   assert.equal((await admin.query("SELECT COUNT(*)::int AS count FROM jobs")).rows[0]?.count, 1);
+  assert.equal(dispatched.size, 1);
+  assert.equal(dispatchCalls, 2);
   console.log("  ✓ 相同完成请求重放原 Job，不重复入队");
 
   const conflict = await completeHandler(request(owner, completeUrl, {
@@ -278,16 +303,44 @@ async function main() {
     parts: completedParts(recovery.data.upload.parts.length),
   };
   await admin.query(`REVOKE EXECUTE ON FUNCTION ${completionSignature} FROM sushua_web_test`);
+  const dispatchCallsBeforeFailure = dispatchCalls;
   const dbFailure = await completeHandler(request(owner, recoveryUrl, recoveryBody, "complete-recovery-001"), recoveryAssetId);
   assert.equal(dbFailure.status, 503);
   assert.equal((await admin.query("SELECT upload_state FROM source_assets WHERE id=$1", [recoveryAssetId])).rows[0]?.upload_state, "initiated");
   assert.equal((await admin.query("SELECT COUNT(*)::int AS count FROM jobs")).rows[0]?.count, 1);
+  assert.equal(dispatchCalls, dispatchCallsBeforeFailure);
   await admin.query(`GRANT EXECUTE ON FUNCTION ${completionSignature} TO sushua_web_test`);
   const recovered = await completeHandler(request(owner, recoveryUrl, recoveryBody, "complete-recovery-001"), recoveryAssetId);
   assert.equal(recovered.status, 202, await recovered.clone().text());
   assert.equal((await admin.query("SELECT upload_state FROM source_assets WHERE id=$1", [recoveryAssetId])).rows[0]?.upload_state, "uploaded");
   assert.equal((await admin.query("SELECT COUNT(*)::int AS count FROM jobs")).rows[0]?.count, 2);
+  assert.equal(dispatched.size, 2);
   console.log("  ✓ 对象已完成但数据库失败时保持可重试，授权恢复后补齐状态与 Job");
+
+  const dispatchRecovery = await initialize("离散数学.pdf", "init-dispatch-recovery-001");
+  const dispatchRecoveryAssetId = dispatchRecovery.data.asset_id as string;
+  const dispatchRecoveryUrl = `https://sushua.test/api/v1/uploads/${dispatchRecoveryAssetId}/complete`;
+  const dispatchRecoveryBody = {
+    upload_id: dispatchRecovery.data.upload.upload_id,
+    sha256: uploadBody.sha256,
+    parts: completedParts(dispatchRecovery.data.upload.parts.length),
+  };
+  failNextDispatch = true;
+  const dispatchFailure = await completeHandler(request(owner, dispatchRecoveryUrl,
+    dispatchRecoveryBody, "complete-dispatch-recovery-001"), dispatchRecoveryAssetId);
+  assert.equal(dispatchFailure.status, 503);
+  assert.equal((await admin.query("SELECT upload_state FROM source_assets WHERE id=$1", [dispatchRecoveryAssetId])).rows[0]?.upload_state, "uploaded");
+  assert.equal((await admin.query("SELECT COUNT(*)::int AS count FROM jobs")).rows[0]?.count, 3);
+  assert.equal(dispatched.size, 2);
+  const dispatchRecovered = await completeHandler(request(owner, dispatchRecoveryUrl,
+    dispatchRecoveryBody, "complete-dispatch-recovery-001"), dispatchRecoveryAssetId);
+  assert.equal(dispatchRecovered.status, 202);
+  const dispatchRecoveredBody = await dispatchRecovered.json();
+  assert.equal(dispatchRecoveredBody.meta.idempotent_replay, true);
+  assert.ok(dispatched.has(dispatchRecoveredBody.data.job_id));
+  assert.equal(dispatched.size, 3);
+  assert.equal((await admin.query("SELECT COUNT(*)::int AS count FROM jobs")).rows[0]?.count, 3);
+  console.log("  ✓ Redis 投递失败不回滚事实 Job，重试从 Postgres 重放同一 Envelope 并补投");
 
   await runtime.close();
   await admin.end();

@@ -50,6 +50,15 @@
 |---|---|---|---|
 | AWS SDK for JavaScript v3 | 3,664 Star；2026-08-31 活跃；v3.1122.0 当日发布 | Apache-2.0 | 精确固定 `@aws-sdk/client-s3` 和 `@aws-sdk/s3-request-presigner` 3.1122.0。GitHub 当前无 high/critical repository advisory，本地生产依赖审计为 0。仅用于 5 分钟 S3 multipart 预签名、完成/取消、HeadObject、短期读 URL 和批量删除；对象键必须位于 `tenant/{workspace_id}/...`，元数据只携带 SHA256，不把原文或密钥进入日志。代替：若 S3 multipart 无法满足断点续传，再评估 tusd/Tus；P0 不引入 AGPL MinIO 核心依赖。 |
 
+## Phase 2 queue snapshot
+
+2026-09-01 复核：
+
+| 组件 | 快照 | 许可 | 决定与安全结论 |
+|---|---|---|---|
+| BullMQ | 9,356 Star；v6.3.3；2026-08-31 活跃 | MIT | 精确固定 6.3.3。GitHub 当前无已发布 high/critical repository advisory；PostgreSQL `jobs` 继续作为事实源，Redis 只保存经过 Schema 校验的小型 Job Envelope。BullMQ `jobId` 固定为持久 Job UUID，因此重复投递不会创建第二个队列任务。替代：若未来需要跨语言持久调度，再基于实际吞吐和恢复数据评估专用工作流引擎。 |
+| node-redis | 17,573 Star；v6.2.1；2026-08-31 活跃 | MIT | 精确固定 6.2.1。GitHub 当前无已发布 high/critical repository advisory。符合 Star 首要排序规则，Star 高于兼容候选 ioredis；BullMQ 6 提供 `createNodeRedisClient` 官方适配入口。Dispatcher 显式拥有并关闭原始连接，配置仅接受 `redis:`/`rediss:` URL，日志与 Job payload 均不包含连接凭证或原文。 |
+
 ## Review policy
 
 - npm 包全部精确固定；lockfile 由 `npm ci` 验证可复现。

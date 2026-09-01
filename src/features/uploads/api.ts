@@ -39,12 +39,12 @@ export function createUploadCompleteHandler(input: {
       const job = result.job;
       return withIdentityCookie(Response.json({
         data: {
-          job_id: job.id,
-          resource_id: job.resourceId,
-          type: job.type,
+          job_id: job.envelope.id,
+          resource_id: job.envelope.resourceId,
+          type: job.envelope.type,
           state: job.state,
-          status_url: `/api/v1/jobs/${job.id}`,
-          stream_url: `/api/v1/jobs/${job.id}/stream`,
+          status_url: `/api/v1/jobs/${job.envelope.id}`,
+          stream_url: `/api/v1/jobs/${job.envelope.id}/stream`,
         },
         meta: {
           request_id: uuidv7(),

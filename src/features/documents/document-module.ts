@@ -1,3 +1,4 @@
+import { parseJobEnvelope, type JobEnvelope } from "@sushua/job-contracts";
 import type { PostgresRuntime } from "@/db/postgres/runtime";
 
 type DocumentActor = { learnerId: string; userId?: string };
@@ -163,7 +164,7 @@ export function createDocumentModule(runtime: PostgresRuntime, options: { now?: 
 
     async completeUpload(context: DocumentContext, input: UploadCompletionInput): Promise<{
       status: "created" | "replayed";
-      job: { id: string; resourceId: string; type: "file.scan"; state: string };
+      job: { envelope: JobEnvelope; state: string };
     }> {
       validateUploadCompletion(context, input);
       const completedAt = now();
@@ -195,9 +196,7 @@ export function createDocumentModule(runtime: PostgresRuntime, options: { now?: 
         return {
           status: row.status,
           job: {
-            id: stringField(row.job.id, "invalid_upload_completion_job"),
-            resourceId: stringField(row.job.resource_id, "invalid_upload_completion_job"),
-            type: literalFileScan(row.job.type),
+            envelope: jobEnvelopeFromRaw(row.job),
             state: stringField(row.job.state, "invalid_upload_completion_job"),
           },
         };
@@ -321,9 +320,23 @@ function stringField(value: unknown, code: string): string {
   return value;
 }
 
-function literalFileScan(value: unknown): "file.scan" {
-  if (value !== "file.scan") throw new Error("invalid_upload_completion_job");
-  return value;
+function jobEnvelopeFromRaw(row: Record<string, unknown>): JobEnvelope {
+  const requestedAt = new Date(stringField(row.requested_at, "invalid_upload_completion_job"));
+  if (!Number.isFinite(requestedAt.getTime())) throw new Error("invalid_upload_completion_job");
+  return parseJobEnvelope({
+    schemaVersion: row.schema_version,
+    id: row.id,
+    type: row.type,
+    workspaceId: row.workspace_id,
+    ...(row.learner_id ? { learnerId: row.learner_id } : {}),
+    resourceId: row.resource_id,
+    idempotencyKey: row.idempotency_key,
+    traceId: row.trace_id,
+    requestedAt: requestedAt.toISOString(),
+    priority: row.priority,
+    budget: row.budget,
+    ...(row.checkpoint ? { checkpoint: row.checkpoint } : {}),
+  });
 }
 
 function assertUuidV7(value: string, code: string) {
