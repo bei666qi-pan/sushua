@@ -67,6 +67,21 @@
 |---|---|---|---|
 | ClamAV | 7,190 Star；clamav-1.5.4 于 2026-08-07 发布；2026-08-27 活跃 | GPL-2.0-only | 固定官方容器索引 digest `sha256:f0954d679017eb6d48221e2b2be3ac5457bf278a844f39b672376f55a085f591`，仅作为独立网络服务调用，不复制或链接 GPL 代码进产品核心。GitHub 当前无已发布 repository advisory；CI 仍扫描容器中的 OS 和应用组件，HIGH/CRITICAL 阻断。真实 TCP 集成测试要求普通字节流为 clean、标准 EICAR 为 infected，错误或畸形响应一律失败关闭。该上游镜像目前只有 `linux/amd64`，CI/生产按 amd64 运行，Apple Silicon 本地验证需显式使用 Docker amd64 仿真。若未来更换扫描引擎，只替换 `ClamAvAdapter` 边界，不改变业务扫描状态协议。 |
 
+## Phase 2 Document Service snapshot
+
+2026-09-01 复核：
+
+| 组件 | 快照 | 许可 | 决定与安全结论 |
+|---|---|---|---|
+| FastAPI | 101,983 Star；0.141.1 于 2026-07-29 发布；最后提交 2026-08-26 | MIT | 精确固定 0.141.1，作为仅内网可达的 Document Service HTTP 层。GitHub 当前唯一仓库公告为影响 `<0.65.2` 的 medium，所选版本不受影响。首个增量只暴露最小 live/ready 与带 Bearer token 的 `/v1/parse`，关闭 OpenAPI/Swagger，不记录正文或 token。 |
+| Uvicorn | 10,939 Star；0.52.4 于 2026-08-19 发布；最后提交 2026-08-30 | BSD-3-Clause | 精确固定 0.52.4，作为 FastAPI ASGI Server。GitHub 当前无 repository advisory。服务通过显式内部地址启动；生产容器、S3 Adapter 和资源限制将在独立增量验证，不能把本 PR 的本地对象 Adapter 视为生产部署。 |
+| Docling | 65,827 Star；2.124.0 于 2026-08-31 发布；最后提交 2026-08-31 | MIT | 本 PR **不安装**。GHSA-4xhp-xg4w-8ppm 披露 ODF `draw:image` 可读宿主文件，公告元数据给出的修复版为 2.120.3；最新 2.124.0 已越过该修复点，历史 high 也在 2.94.0 前修复。后续接入仍须在无宿主挂载、只读根、任务隔离目录中复现恶意 ODF 回归并以当日扫描结果放行。 |
+| MarkItDown | 177,441 Star；0.1.7 于 2026-07-29 发布；最后提交 2026-08-31 | MIT | 本 PR **不安装**，保留为简单 Office/HTML/文本降级候选。GitHub 当前无 repository advisory；接入时必须经相同对象键、输出 Schema 和沙箱边界，不允许绕过 Document IR 校验。 |
+| uv | 89,292 Star；0.12.8 于 2026-08-31 发布；最后提交 2026-09-01 | Apache-2.0 | CI 工具精确固定 0.12.8；`uv.lock` 保存完整版本、文件 URL 与 SHA256，`--frozen` 禁止门禁期间改锁。已发布 medium 均影响 `<0.11.15` 等旧版本，所选版本不受影响。 |
+| Ruff | 49,415 Star；0.16.5 于 2026-08-27 发布；最后提交 2026-08-31 | MIT | 开发门禁精确固定 0.16.5，检查 Document Service；GitHub 当前无 repository advisory。 |
+| mypy | 20,624 Star；2.3.1 于 2026-08-15 发布；最后提交 2026-09-01 | MIT | 开发门禁精确固定 2.3.1 并启用 strict；GitHub 当前无 repository advisory。 |
+| pip-audit | 1,359 Star；2.10.1 于 2026-06-10 发布；最后提交 2026-08-31 | Apache-2.0 | 虽低于大型运行时项目，但它是 PyPA 官方安全门禁工具而非产品能力；精确固定 2.10.1，审计锁定后的 Python 环境。GitHub 当前无 repository advisory。 |
+
 ## Review policy
 
 - npm 包全部精确固定；lockfile 由 `npm ci` 验证可复现。

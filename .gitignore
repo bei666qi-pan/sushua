@@ -1,4 +1,7 @@
 node_modules/
+.venv/
+.mypy_cache/
+.ruff_cache/
 .next/
 out/
 dist/
