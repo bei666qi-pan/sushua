@@ -1,4 +1,5 @@
 import { getDocumentServer } from "@/features/documents/server";
+import { getJobDispatcherServer } from "@/features/jobs/dispatcher-server";
 import { getStorageServer } from "@/features/storage/server";
 import { createUploadModule } from "./upload-module";
 
@@ -7,7 +8,11 @@ const globalUploads = globalThis as typeof globalThis & { __sushuaUploads?: Uplo
 
 export function getUploadServer(): UploadServer {
   if (globalUploads.__sushuaUploads) return globalUploads.__sushuaUploads;
-  const uploads = createUploadModule({ documents: getDocumentServer(), storage: getStorageServer() });
+  const uploads = createUploadModule({
+    documents: getDocumentServer(),
+    storage: getStorageServer(),
+    dispatcher: getJobDispatcherServer(),
+  });
   globalUploads.__sushuaUploads = uploads;
   return uploads;
 }

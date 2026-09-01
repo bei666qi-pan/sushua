@@ -151,7 +151,7 @@ npm run audit    # 生产依赖 HIGH/CRITICAL 门禁
 npm run ci:verify
 ```
 
-Phase 1 起，完整测试需要真实 PostgreSQL 17 + pgvector 0.8.6，并通过 `TEST_DATABASE_URL` 指定测试库。集成测试会重建该数据库的 `public` schema，禁止指向开发或生产数据库。
+Phase 1 起，完整测试需要真实 PostgreSQL 17 + pgvector 0.8.6；Phase 2 起还需要 Redis 8.2.1。分别通过 `TEST_DATABASE_URL` 和 `TEST_REDIS_URL` 指向隔离测试实例。集成测试会重建 PostgreSQL 的 `public` schema，并清除自己的随机 Redis 测试队列，禁止指向开发或生产实例。
 
 架构基线见 [领域词汇](CONTEXT.md)、[ADR](docs/adr/README.md)、[OSS 决策](docs/oss-decisions.md) 和 [Feature Flags](docs/feature-flags.md)。Phase 0 的新能力开关全部默认关闭，不改变现有页面和 API 行为。
 
@@ -164,6 +164,7 @@ Phase 1 起，完整测试需要真实 PostgreSQL 17 + pgvector 0.8.6，并通�
 | `FEATURE_WORKSPACE_LIBRARY` | 开启 `/workspaces` 与 Workspace v1 API；默认失败关闭 | `false` |
 | `FEATURE_ASYNC_INGESTION` | 开启 `/api/v1/uploads` 的异步摄取初始化；默认失败关闭 | `false` |
 | `DATABASE_URL` | Phase 1 PostgreSQL 应用连接 | — |
+| `REDIS_URL` | Phase 2 BullMQ 连接；只保存 Job Envelope，业务事实仍在 PostgreSQL | — |
 | `GUEST_SESSION_SECRET` | 游客身份 Cookie 的 HMAC 密钥，至少 32 字节 | — |
 | `BETTER_AUTH_URL` | Better Auth 对外基地址 | — |
 | `BETTER_AUTH_SECRET` | 至少 32 字符的会话签名密钥 | — |

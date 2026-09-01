@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { v7 as uuidv7 } from "uuid";
 import { createDocumentModule } from "@/features/documents/document-module";
+import type { JobDispatcher } from "@/features/jobs/job-dispatcher";
 import {
   validateCompletedParts,
   type CompletedPart,
@@ -30,6 +31,7 @@ export type UploadCompleteInput = {
 export function createUploadModule(input: {
   documents: DocumentModule;
   storage: StorageAdapter;
+  dispatcher?: JobDispatcher;
   newId?: () => string;
 }) {
   const newId = input.newId ?? uuidv7;
@@ -90,6 +92,7 @@ export function createUploadModule(input: {
     },
 
     async complete(actor: { learnerId: string; userId?: string }, request: UploadCompleteInput) {
+      if (!input.dispatcher) throw new Error("job_dispatcher_unavailable");
       const parts = validateCompletedParts(request.parts);
       const completionRequestHash = hashJson({
         assetId: request.assetId,
@@ -115,7 +118,7 @@ export function createUploadModule(input: {
         });
       }
       assertMetadata(document, metadata);
-      return input.documents.completeUpload({
+      const result = await input.documents.completeUpload({
         ...actor,
         workspaceId: document.workspaceId,
       }, {
@@ -136,6 +139,8 @@ export function createUploadModule(input: {
         jobId: newId(),
         traceId: newId(),
       });
+      await input.dispatcher.dispatch(result.job.envelope);
+      return result;
     },
   };
 }
