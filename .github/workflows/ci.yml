@@ -123,6 +123,13 @@ jobs:
           --tag sushua-document-worker:${{ github.sha }}
           services/document-worker
 
+      - name: Build isolated Docling image
+        run: >-
+          docker build
+          --file services/docling-worker/Dockerfile
+          --tag sushua-docling-worker:${{ github.sha }}
+          services/docling-worker
+
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -137,6 +144,15 @@ jobs:
         with:
           version: v0.74.0
           image-ref: sushua-document-worker:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+          ignore-unfixed: "false"
+
+      - name: Report Docling image findings with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          image-ref: sushua-docling-worker:${{ github.sha }}
           severity: HIGH,CRITICAL
           exit-code: "0"
           ignore-unfixed: "false"
@@ -186,6 +202,24 @@ jobs:
           syft-version: v1.51.1
           upload-artifact: "false"
 
+      - name: Generate Docling CycloneDX SBOM
+        uses: anchore/sbom-action@006b7ce8314066bdf1765b4500370d40fa6917a3 # v0.24.2
+        with:
+          image: sushua-docling-worker:${{ github.sha }}
+          format: cyclonedx-json
+          output-file: docling.sbom.cyclonedx.json
+          syft-version: v1.51.1
+          upload-artifact: "false"
+
+      - name: Generate Docling SPDX SBOM
+        uses: anchore/sbom-action@006b7ce8314066bdf1765b4500370d40fa6917a3 # v0.24.2
+        with:
+          image: sushua-docling-worker:${{ github.sha }}
+          format: spdx-json
+          output-file: docling.sbom.spdx.json
+          syft-version: v1.51.1
+          upload-artifact: "false"
+
       - name: Scan image with Grype
         uses: anchore/scan-action@8576240a41341d866dbd7ebc72cd9fc0ef023f54 # v7.4.2
         with:
@@ -204,6 +238,15 @@ jobs:
           fail-build: "false"
           output-format: table
 
+      - name: Report Docling image findings with Grype
+        uses: anchore/scan-action@8576240a41341d866dbd7ebc72cd9fc0ef023f54 # v7.4.2
+        with:
+          image: sushua-docling-worker:${{ github.sha }}
+          grype-version: v0.118.0
+          severity-cutoff: high
+          fail-build: "false"
+          output-format: table
+
       - name: Upload SBOMs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -213,5 +256,7 @@ jobs:
             sbom.spdx.json
             document-service.sbom.cyclonedx.json
             document-service.sbom.spdx.json
+            docling.sbom.cyclonedx.json
+            docling.sbom.spdx.json
           if-no-files-found: error
           retention-days: 30
