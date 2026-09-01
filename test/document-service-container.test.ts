@@ -90,6 +90,7 @@ async function main() {
       irSchemaVersion: "sushua.document-ir.v1",
       parseStatus: "parsing",
     }, new AbortController().signal);
+    grantHostFixtureAccess(containerName, irDirectory);
     const ir = await readFile(path.join(storageRoot, ...result.irObjectKey.split("/")));
     assert.equal(createHash("sha256").update(ir).digest("hex"), result.irSha256);
     const state = JSON.parse(docker("inspect", containerName, "--format", "{{json .State}}")) as {
@@ -106,13 +107,7 @@ async function main() {
       const logs = docker("logs", containerName);
       assert.equal(logs.includes(SOURCE.toString("utf8").trim()), false);
       assert.equal(logs.includes(TOKEN), false);
-      docker(
-        "exec", "--env", `IR_DIRECTORY=${irDirectory}`, containerName,
-        "python", "-c",
-        "import os; from pathlib import Path; root = Path(os.environ['IR_DIRECTORY']); "
-          + "[item.chmod(0o777) for item in root.rglob('*')] if root.exists() else None; "
-          + "root.chmod(0o777) if root.exists() else None",
-      );
+      grantHostFixtureAccess(containerName, irDirectory);
       spawnSync("docker", ["rm", "--force", containerName], { encoding: "utf8" });
     }
     spawnSync("docker", ["image", "rm", "--force", IMAGE], { encoding: "utf8" });
@@ -123,6 +118,16 @@ async function main() {
 
 function docker(...args: string[]) {
   return execFileSync("docker", args, { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 });
+}
+
+function grantHostFixtureAccess(containerName: string, irDirectory: string) {
+  docker(
+    "exec", "--env", `IR_DIRECTORY=${irDirectory}`, containerName,
+    "python", "-c",
+    "import os; from pathlib import Path; root = Path(os.environ['IR_DIRECTORY']); "
+      + "[item.chmod(0o777) for item in root.rglob('*')] if root.exists() else None; "
+      + "root.chmod(0o777) if root.exists() else None",
+  );
 }
 
 async function waitUntilReady(baseUrl: string, containerName: string) {
