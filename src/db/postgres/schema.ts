@@ -275,6 +275,13 @@ export const documentVersions = pgTable("document_versions", {
   irSchemaVersion: text("ir_schema_version").notNull().default("sushua.document-ir.v1"),
   status: documentVersionStatus("status").notNull().default("uploading"),
   errorCode: text("error_code"),
+  parseJobId: uuid("parse_job_id").references(() => jobs.id),
+  irObjectKey: text("ir_object_key"),
+  irSha256: text("ir_sha256"),
+  parser: text("parser"),
+  parserVersion: text("parser_version"),
+  pageCount: integer("page_count"),
+  parsedAt: timestamp("parsed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
 }, (table) => [
   uniqueIndex("document_versions_document_version_unique").on(table.documentId, table.version),
@@ -282,6 +289,7 @@ export const documentVersions = pgTable("document_versions", {
   uniqueIndex("document_versions_workspace_document_id_unique").on(table.workspaceId, table.documentId, table.id),
   uniqueIndex("document_versions_workspace_id_unique").on(table.workspaceId, table.id),
   index("document_versions_document_created_idx").on(table.documentId, table.createdAt, table.id),
+  index("document_versions_parse_job_idx").on(table.parseJobId).where(sql`parse_job_id IS NOT NULL`),
 ]);
 
 export const sourceAssets = pgTable("source_assets", {
