@@ -9,6 +9,7 @@ export type JobWorkerConfig = {
   concurrency: number;
   leaseSeconds: number;
   clamav: { host: string; port: number };
+  documentService: { baseUrl: string; token: string };
   s3: { bucket: string; clientConfig: S3ClientConfig };
 };
 
@@ -28,6 +29,12 @@ export function readJobWorkerConfig(environment: WorkerEnvironment): JobWorkerCo
     throw new Error("invalid_worker_config:CLAMAV_HOST");
   }
   const port = integer(required(environment, "CLAMAV_PORT"), 1, 65_535, "CLAMAV_PORT");
+  const documentServiceUrl = required(environment, "DOCUMENT_SERVICE_URL");
+  validateServiceUrl(documentServiceUrl);
+  const documentServiceToken = required(environment, "DOCUMENT_SERVICE_TOKEN");
+  if (documentServiceToken.length < 32 || documentServiceToken.length > 512 || /[\r\n]/.test(documentServiceToken)) {
+    throw new Error("invalid_worker_config:DOCUMENT_SERVICE_TOKEN");
+  }
   const endpoint = environment.S3_ENDPOINT?.trim();
   if (endpoint) validateUrl(endpoint, ["http:", "https:"], "invalid_worker_config:S3_ENDPOINT");
   const accessKeyId = required(environment, "S3_ACCESS_KEY_ID");
@@ -39,6 +46,7 @@ export function readJobWorkerConfig(environment: WorkerEnvironment): JobWorkerCo
     concurrency,
     leaseSeconds,
     clamav: { host, port },
+    documentService: { baseUrl: documentServiceUrl, token: documentServiceToken },
     s3: {
       bucket: required(environment, "S3_BUCKET"),
       clientConfig: {
@@ -73,4 +81,17 @@ function validateUrl(value: string, protocols: string[], code: string) {
     throw new Error(code);
   }
   if (!protocols.includes(url.protocol)) throw new Error(code);
+}
+
+function validateServiceUrl(value: string) {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("invalid_worker_config:DOCUMENT_SERVICE_URL");
+  }
+  if (!["http:", "https:"].includes(url.protocol)
+    || url.username || url.password || url.search || url.hash) {
+    throw new Error("invalid_worker_config:DOCUMENT_SERVICE_URL");
+  }
 }

@@ -14,6 +14,8 @@ async function main() {
     S3_SECRET_ACCESS_KEY: "private-s3",
     CLAMAV_HOST: "clamav",
     CLAMAV_PORT: "3310",
+    DOCUMENT_SERVICE_URL: "http://document-worker:8000",
+    DOCUMENT_SERVICE_TOKEN: "document-service-private-token-0001",
     WORKER_QUEUES: "document",
     WORKER_CONCURRENCY: "2",
     WORKER_LEASE_SECONDS: "300",
@@ -26,6 +28,10 @@ async function main() {
     concurrency: 2,
     leaseSeconds: 300,
     clamav: { host: "clamav", port: 3310 },
+    documentService: {
+      baseUrl: "http://document-worker:8000",
+      token: "document-service-private-token-0001",
+    },
     s3: {
       bucket: "sushua-private",
       clientConfig: {
@@ -44,6 +50,8 @@ async function main() {
     { WORKER_LEASE_SECONDS: "0" },
     { WORKER_QUEUES: "ai" },
     { STORAGE_DRIVER: "memory" },
+    { DOCUMENT_SERVICE_URL: "ftp://document-worker" },
+    { DOCUMENT_SERVICE_TOKEN: "short" },
     { DATABASE_URL: "" },
   ]) {
     const candidate = { ...environment, ...patch };
