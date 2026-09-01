@@ -36,6 +36,10 @@ GRANT USAGE ON SCHEMA public TO <worker_role>;
 GRANT EXECUTE ON FUNCTION purge_expired_guest_learners(timestamptz, integer) TO <worker_role>;
 GRANT EXECUTE ON FUNCTION transition_job_v1(uuid, text, jsonb, jsonb, text, timestamptz, timestamptz) TO <worker_role>;
 GRANT EXECUTE ON FUNCTION claim_job_v1(uuid, integer, timestamptz) TO <worker_role>;
+GRANT EXECUTE ON FUNCTION read_source_asset_scan_target_v1(uuid) TO <worker_role>;
+GRANT EXECUTE ON FUNCTION record_source_asset_scan_v1(uuid, text, text, text, text, timestamptz) TO <worker_role>;
+GRANT EXECUTE ON FUNCTION start_document_parse_v1(uuid, timestamptz) TO <worker_role>;
+GRANT EXECUTE ON FUNCTION record_document_parse_v1(uuid, text, text, text, text, text, integer, text, timestamptz) TO <worker_role>;
 ```
 
-这些后台函数保持 `PUBLIC` 权限撤销；Worker 无需获得租户表或 `jobs` 的直接 `UPDATE` / `DELETE` 权限。Web 读取 `jobs` 时仍通过强制 RLS，并需要已有的 `workspace_members` 读权限供策略判断成员身份。
+这些后台函数保持 `PUBLIC` 权限撤销；Worker 无需获得租户表或 `jobs` 的直接 `UPDATE` / `DELETE` 权限。扫描和解析函数都只接收持久 Job ID，并在数据库内重新推导 Workspace、DocumentVersion 与对象键；Redis payload 不是租户事实源。Web 读取 `jobs` 时仍通过强制 RLS，并需要已有的 `workspace_members` 读权限供策略判断成员身份。
