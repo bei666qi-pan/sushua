@@ -64,6 +64,11 @@ async function verifyHttpBoundary(fixtures: string) {
   const source = await readFile(path.join(fixtures, "source.docx"));
   const objectKey = `tenant/${IDS.workspaceId}/${IDS.documentId}/${IDS.documentVersionId}/source/${IDS.sourceAssetId}`;
   const sourcePath = path.join(fixtures, ...objectKey.split("/"));
+  const conversionDirectory = path.posix.join(
+    "/data",
+    path.posix.dirname(path.posix.dirname(objectKey)),
+    "conversion",
+  );
   await mkdir(path.dirname(sourcePath), { recursive: true });
   await copyFile(path.join(fixtures, "source.docx"), sourcePath);
   await chmodTree(fixtures);
@@ -118,8 +123,22 @@ async function verifyHttpBoundary(fixtures: string) {
     assert.equal(logs.includes("Cell membrane"), false);
     assert.equal(logs.includes(TOKEN), false);
   } finally {
-    if (started) spawnSync("docker", ["rm", "--force", containerName], { encoding: "utf8" });
+    if (started) {
+      grantHostFixtureAccess(containerName, conversionDirectory);
+      spawnSync("docker", ["rm", "--force", containerName], { encoding: "utf8" });
+    }
   }
+}
+
+function grantHostFixtureAccess(containerName: string, conversionDirectory: string) {
+  const result = spawnSync("docker", [
+    "exec", "--env", `CONVERSION_DIRECTORY=${conversionDirectory}`,
+    containerName, "python", "-c",
+    "import os; from pathlib import Path; root = Path(os.environ['CONVERSION_DIRECTORY']); "
+      + "[item.chmod(0o777) for item in root.rglob('*')] if root.exists() else None; "
+      + "root.chmod(0o777) if root.exists() else None",
+  ], { encoding: "utf8" });
+  assert.equal(result.status, 0, `fixture permission handoff failed: ${result.stderr}`);
 }
 
 async function waitUntilReady(containerName: string) {
