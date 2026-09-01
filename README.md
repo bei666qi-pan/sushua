@@ -165,6 +165,10 @@ Phase 1 起，完整测试需要真实 PostgreSQL 17 + pgvector 0.8.6；Phase 2 
 | `FEATURE_ASYNC_INGESTION` | 开启 `/api/v1/uploads` 的异步摄取初始化；默认失败关闭 | `false` |
 | `DATABASE_URL` | Phase 1 PostgreSQL 应用连接 | — |
 | `REDIS_URL` | Phase 2 BullMQ 连接；只保存 Job Envelope，业务事实仍在 PostgreSQL | — |
+| `WORKER_QUEUES` | Job Worker 消费池；当前只允许 `document` | `document` |
+| `WORKER_CONCURRENCY` | 单 Worker 并发数，范围 1–100 | `1` |
+| `WORKER_LEASE_SECONDS` | PostgreSQL Job 租约秒数，范围 1–3600 | `300` |
+| `CLAMAV_HOST` / `CLAMAV_PORT` | 内网 clamd TCP 地址 | — |
 | `GUEST_SESSION_SECRET` | 游客身份 Cookie 的 HMAC 密钥，至少 32 字节 | — |
 | `BETTER_AUTH_URL` | Better Auth 对外基地址 | — |
 | `BETTER_AUTH_SECRET` | 至少 32 字符的会话签名密钥 | — |
