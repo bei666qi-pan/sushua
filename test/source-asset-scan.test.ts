@@ -51,6 +51,9 @@ async function main() {
   await admin.query(
     "GRANT EXECUTE ON FUNCTION record_source_asset_scan_v1(uuid,text,text,text,text,timestamptz) TO sushua_worker_test",
   );
+  await admin.query(
+    "GRANT EXECUTE ON FUNCTION schedule_document_parse_v1(uuid,uuid,uuid,text,timestamptz) TO sushua_worker_test",
+  );
   assert.deepEqual(await scans.getTarget(clean.jobId), {
     jobId: clean.jobId,
     workspaceId: clean.workspaceId,
@@ -70,10 +73,12 @@ async function main() {
   assert.equal((await assetState(admin, clean.assetId)).scan_status, "pending");
   console.log("  ✓ 实际对象哈希不符时数据库拒绝 clean，且三层状态均不推进");
 
-  assert.deepEqual(
-    await scans.record(clean.jobId, { status: "clean", actualSha256: "a".repeat(64) }),
-    { status: "clean", replayed: false },
-  );
+  const scheduled = await scans.record(clean.jobId, { status: "clean", actualSha256: "a".repeat(64) });
+  assert.equal(scheduled.status, "clean");
+  assert.equal(scheduled.replayed, false);
+  assert.equal(scheduled.nextJob?.type, "document.parse");
+  assert.equal(scheduled.nextJob?.resourceId, clean.versionId);
+  assert.equal(scheduled.nextJob?.workspaceId, clean.workspaceId);
   assert.deepEqual(await assetState(admin, clean.assetId), {
     scan_status: "clean",
     scan_job_id: clean.jobId,
@@ -84,15 +89,15 @@ async function main() {
     version_error_code: null,
     parse_status: "scan_pending",
   });
-  assert.deepEqual(
-    await scans.record(clean.jobId, { status: "clean", actualSha256: "a".repeat(64) }),
-    { status: "clean", replayed: true },
-  );
+  const replayed = await scans.record(clean.jobId, { status: "clean", actualSha256: "a".repeat(64) });
+  assert.equal(replayed.status, "clean");
+  assert.equal(replayed.replayed, true);
+  assert.equal(replayed.nextJob?.id, scheduled.nextJob?.id);
   await assert.rejects(
     () => scans.record(clean.jobId, { status: "failed", errorCode: "scanner_protocol_error" }),
     /scan_result_conflict/,
   );
-  console.log("  ✓ clean 原子推进 Asset 与 Version；同一结果可重放，不同结果明确冲突");
+  console.log("  ✓ clean 与 document.parse Job 同事务落库；重放返回同一 Job，冲突结果被拒绝");
 
   assert.deepEqual(await scans.record(infected.jobId, {
     status: "infected",

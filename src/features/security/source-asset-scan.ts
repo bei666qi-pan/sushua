@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { v7 as uuidv7 } from "uuid";
+import { parseJobEnvelope, type JobEnvelope } from "@sushua/job-contracts";
 import type { PostgresRuntime } from "@/db/postgres/runtime";
 
 export type SourceAssetScanTarget = {
@@ -36,6 +39,7 @@ export function createSourceAssetScanModule(runtime: PostgresRuntime, options: {
     async record(jobId: string, result: SourceAssetScanResult): Promise<{
       status: SourceAssetScanResult["status"];
       replayed: boolean;
+      nextJob?: JobEnvelope;
     }> {
       assertUuidV7(jobId, "invalid_scan_job_id");
       validateResult(result);
@@ -57,10 +61,24 @@ export function createSourceAssetScanModule(runtime: PostgresRuntime, options: {
         if (!row || !["clean", "infected", "failed"].includes(row.status) || typeof row.replayed !== "boolean") {
           throw new Error("invalid_scan_record_result");
         }
-        return row;
+        if (row.status !== "clean") return row;
+        const scheduled = await query<{ result: unknown }>(
+          "SELECT schedule_document_parse_v1($1,$2,$3,$4,$5) AS result",
+          [jobId, uuidv7(), uuidv7(), parseRequestHash(), scannedAt],
+        );
+        return { ...row, nextJob: parseJobEnvelope(scheduled.rows[0]?.result) };
       });
     },
   };
+}
+
+function parseRequestHash() {
+  return createHash("sha256").update(JSON.stringify({
+    type: "document.parse",
+    priority: 0,
+    budget: {},
+    maxAttempts: 3,
+  })).digest("hex");
 }
 
 function targetFromRaw(row: Record<string, unknown>): SourceAssetScanTarget {
