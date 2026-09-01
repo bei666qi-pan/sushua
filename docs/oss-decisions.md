@@ -59,6 +59,14 @@
 | BullMQ | 9,356 Star；v6.3.3；2026-08-31 活跃 | MIT | 精确固定 6.3.3。GitHub 当前无已发布 high/critical repository advisory；PostgreSQL `jobs` 继续作为事实源，Redis 只保存经过 Schema 校验的小型 Job Envelope。BullMQ `jobId` 固定为持久 Job UUID，因此重复投递不会创建第二个队列任务。替代：若未来需要跨语言持久调度，再基于实际吞吐和恢复数据评估专用工作流引擎。 |
 | node-redis | 17,573 Star；v6.2.1；2026-08-31 活跃 | MIT | 精确固定 6.2.1。GitHub 当前无已发布 high/critical repository advisory。符合 Star 首要排序规则，Star 高于兼容候选 ioredis；BullMQ 6 提供 `createNodeRedisClient` 官方适配入口。Dispatcher 显式拥有并关闭原始连接，配置仅接受 `redis:`/`rediss:` URL，日志与 Job payload 均不包含连接凭证或原文。 |
 
+## Phase 2 file scanning snapshot
+
+2026-09-01 复核：
+
+| 组件 | 快照 | 许可 | 决定与安全结论 |
+|---|---|---|---|
+| ClamAV | 7,190 Star；clamav-1.5.4 于 2026-08-07 发布；2026-08-27 活跃 | GPL-2.0-only | 固定官方容器索引 digest `sha256:f0954d679017eb6d48221e2b2be3ac5457bf278a844f39b672376f55a085f591`，仅作为独立网络服务调用，不复制或链接 GPL 代码进产品核心。GitHub 当前无已发布 repository advisory；CI 仍扫描容器中的 OS 和应用组件，HIGH/CRITICAL 阻断。真实 TCP 集成测试要求普通字节流为 clean、标准 EICAR 为 infected，错误或畸形响应一律失败关闭。该上游镜像目前只有 `linux/amd64`，CI/生产按 amd64 运行，Apple Silicon 本地验证需显式使用 Docker amd64 仿真。若未来更换扫描引擎，只替换 `ClamAvAdapter` 边界，不改变业务扫描状态协议。 |
+
 ## Review policy
 
 - npm 包全部精确固定；lockfile 由 `npm ci` 验证可复现。
