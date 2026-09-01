@@ -45,6 +45,9 @@ async function main() {
   await admin.query(
     "GRANT EXECUTE ON FUNCTION record_source_asset_scan_v1(uuid,text,text,text,text,timestamptz) TO sushua_worker_test",
   );
+  await admin.query(
+    "GRANT EXECUTE ON FUNCTION schedule_document_parse_v1(uuid,uuid,uuid,text,timestamptz) TO sushua_worker_test",
+  );
 
   const cleanBytes = Buffer.from("SuShua integration test");
   const tamperedBytes = Buffer.from("tampered object bytes!!!");
@@ -68,6 +71,7 @@ async function main() {
     sha256: item.sha256,
     mimeType: "application/pdf",
   }]));
+  const dispatchedJobs: Array<{ type: string; resourceId: string }> = [];
   const handler = handlerModule.createFileScanHandler({
     scans,
     scanner,
@@ -85,6 +89,9 @@ async function main() {
         return chunks(value.subarray(0, 7), value.subarray(7));
       },
     },
+    dispatcher: {
+      async dispatch(job: { type: string; resourceId: string }) { dispatchedJobs.push(job); },
+    },
   });
 
   console.log("file.scan Handler");
@@ -95,8 +102,47 @@ async function main() {
     reportProgress: async (value: { phase: string; percent: number }) => { progress.push(value); },
   }), { checkpoint: { scanStatus: "clean", assetId: clean.assetId, sha256: clean.sha256 } });
   assert.equal((await assetStatus(admin, clean.assetId)).scan_status, "clean");
+  assert.deepEqual(dispatchedJobs.map(({ type, resourceId }) => ({ type, resourceId })), [{
+    type: "document.parse",
+    resourceId: clean.versionId,
+  }]);
   assert.deepEqual(progress.map((item) => item.percent), [10, 40, 100]);
   console.log("  ✓ 真实 clamd 返回 clean 且流式字节 SHA256/长度一致后才持久化 clean");
+
+  const scheduled = await scans.record(clean.job.id, { status: "clean", actualSha256: clean.sha256 });
+  const dispatchUnavailable = handlerModule.createFileScanHandler({
+    scans: {
+      async getTarget() {
+        return {
+          jobId: clean.job.id,
+          workspaceId: clean.job.workspaceId,
+          assetId: clean.assetId,
+          objectKey: clean.objectKey,
+          sizeBytes: clean.sizeBytes,
+          sha256: clean.sha256,
+          mimeType: "application/pdf",
+          scanStatus: "clean" as const,
+        };
+      },
+      async record() { return scheduled; },
+    },
+    scanner,
+    storage: { stat: async () => { throw new Error("must_not_stat"); } },
+    reader: { read: async () => { throw new Error("must_not_read"); } },
+    dispatcher: { dispatch: async () => { throw new Error("private redis endpoint"); } },
+  });
+  await assert.rejects(
+    () => dispatchUnavailable({
+      job: clean.job,
+      signal: new AbortController().signal,
+      reportProgress: async () => undefined,
+    }),
+    (error: unknown) => error instanceof JobExecutionError
+      && error.code === "job_dispatch_failed"
+      && error.retryable
+      && !error.message.includes("private"),
+  );
+  console.log("  ✓ Redis 投递失败保留持久解析 Job，并只暴露安全可重试错误");
 
   await assert.rejects(
     () => handler({
@@ -135,6 +181,7 @@ async function main() {
     scanner,
     storage: { stat: async () => { throw new Error("private storage detail"); } },
     reader: { read: async () => { throw new Error("must_not_read"); } },
+    dispatcher: { dispatch: async () => undefined },
   });
   await assert.rejects(
     () => unavailable({
@@ -247,6 +294,7 @@ async function seedScan(admin: Pool, suffix: string, expectedBytes: Buffer, maxA
   );
   return {
     assetId,
+    versionId,
     objectKey,
     sizeBytes: expectedBytes.byteLength,
     sha256,

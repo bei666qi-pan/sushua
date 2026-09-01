@@ -8,7 +8,11 @@ import type { SourceAssetScanResult, SourceAssetScanTarget } from "./source-asse
 
 type SourceAssetScans = {
   getTarget(jobId: string): Promise<SourceAssetScanTarget>;
-  record(jobId: string, result: SourceAssetScanResult): Promise<{ status: string; replayed: boolean }>;
+  record(jobId: string, result: SourceAssetScanResult): Promise<{
+    status: string;
+    replayed: boolean;
+    nextJob?: import("@sushua/job-contracts").JobEnvelope;
+  }>;
 };
 
 export type SourceObjectReader = {
@@ -20,13 +24,20 @@ export function createFileScanHandler(input: {
   scanner: ClamAvAdapter;
   storage: { stat(ref: ObjectRef): Promise<ObjectMetadata> };
   reader: SourceObjectReader;
+  dispatcher: { dispatch(job: import("@sushua/job-contracts").JobEnvelope): Promise<void> };
 }): JobHandler {
   return async ({ job, signal, reportProgress }) => {
     const target = await input.scans.getTarget(job.id);
     if (target.assetId !== job.resourceId || target.workspaceId !== job.workspaceId) {
       throw new JobExecutionError("scan_target_mismatch", { retryable: false });
     }
-    if (target.scanStatus === "clean") return { checkpoint: cleanCheckpoint(target) };
+    if (target.scanStatus === "clean") {
+      await scheduleParse(await input.scans.record(job.id, {
+        status: "clean",
+        actualSha256: target.sha256,
+      }));
+      return { checkpoint: cleanCheckpoint(target) };
+    }
     if (target.scanStatus === "infected") {
       throw new JobExecutionError("malware_detected", { retryable: false });
     }
@@ -80,7 +91,8 @@ export function createFileScanHandler(input: {
       throw new JobExecutionError("malware_detected", { retryable: false });
     }
 
-    await input.scans.record(job.id, { status: "clean", actualSha256: evidence.sha256 });
+    const recorded = await input.scans.record(job.id, { status: "clean", actualSha256: evidence.sha256 });
+    await scheduleParse(recorded);
     await reportProgress({ phase: "file_scan", percent: 100, messageCode: "scan_clean" }, cleanCheckpoint(target));
     return { checkpoint: cleanCheckpoint(target) };
 
@@ -89,6 +101,15 @@ export function createFileScanHandler(input: {
         await input.scans.record(job.id, { status: "failed", errorCode: code });
       }
       throw new JobExecutionError(code, { retryable });
+    }
+
+    async function scheduleParse(recorded: { nextJob?: import("@sushua/job-contracts").JobEnvelope }) {
+      if (!recorded.nextJob) throw new JobExecutionError("parse_schedule_missing", { retryable: true });
+      try {
+        await input.dispatcher.dispatch(recorded.nextJob);
+      } catch {
+        throw new JobExecutionError("job_dispatch_failed", { retryable: true });
+      }
     }
   };
 }

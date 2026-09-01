@@ -3,6 +3,7 @@ import { createDocumentParseHandler } from "@/features/documents/document-parse-
 import { createDocumentParseModule } from "@/features/documents/document-parse";
 import { createDocumentServiceClient, type DocumentParser } from "@/features/documents/document-service-client";
 import { createBullMqJobWorker } from "@/features/jobs/bullmq-job-worker";
+import { createBullMqJobDispatcher } from "@/features/jobs/bullmq-job-dispatcher";
 import { createJobModule } from "@/features/jobs/job-module";
 import { createClamAvAdapter } from "@/features/security/clamav-adapter";
 import { createFileScanHandler } from "@/features/security/file-scan-handler";
@@ -32,12 +33,13 @@ export function createJobWorkerRuntime(
   const reader = overrides.reader ?? createS3SourceObjectReader(config.s3);
   const scanner = overrides.scanner ?? createClamAvAdapter(config.clamav);
   const parser = overrides.parser ?? createDocumentServiceClient(config.documentService);
+  const dispatcher = createBullMqJobDispatcher({ queueName: config.queueName, redisUrl: config.redisUrl });
   const worker = createBullMqJobWorker({
     queueName: config.queueName,
     redisUrl: config.redisUrl,
     jobs,
     handlers: {
-      "file.scan": createFileScanHandler({ scans, scanner, storage, reader }),
+      "file.scan": createFileScanHandler({ scans, scanner, storage, reader, dispatcher }),
       "document.parse": createDocumentParseHandler({ parses, parser }),
     },
     leaseSeconds: config.leaseSeconds,
@@ -51,6 +53,7 @@ export function createJobWorkerRuntime(
       if (closed) return;
       closed = true;
       await worker.close();
+      await dispatcher.close();
       await database.close();
     },
   };

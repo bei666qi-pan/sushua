@@ -38,6 +38,7 @@ GRANT EXECUTE ON FUNCTION transition_job_v1(uuid, text, jsonb, jsonb, text, time
 GRANT EXECUTE ON FUNCTION claim_job_v1(uuid, integer, timestamptz) TO <worker_role>;
 GRANT EXECUTE ON FUNCTION read_source_asset_scan_target_v1(uuid) TO <worker_role>;
 GRANT EXECUTE ON FUNCTION record_source_asset_scan_v1(uuid, text, text, text, text, timestamptz) TO <worker_role>;
+GRANT EXECUTE ON FUNCTION schedule_document_parse_v1(uuid, uuid, uuid, text, timestamptz) TO <worker_role>;
 GRANT EXECUTE ON FUNCTION start_document_parse_v1(uuid, timestamptz) TO <worker_role>;
 GRANT EXECUTE ON FUNCTION record_document_parse_v1(uuid, text, text, text, text, text, integer, text, timestamptz) TO <worker_role>;
 ```

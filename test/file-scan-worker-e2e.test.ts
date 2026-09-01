@@ -40,6 +40,9 @@ async function main() {
   await admin.query(
     "GRANT EXECUTE ON FUNCTION record_source_asset_scan_v1(uuid,text,text,text,text,timestamptz) TO sushua_worker_test",
   );
+  await admin.query(
+    "GRANT EXECUTE ON FUNCTION schedule_document_parse_v1(uuid,uuid,uuid,text,timestamptz) TO sushua_worker_test",
+  );
   await admin.query("GRANT EXECUTE ON FUNCTION start_document_parse_v1(uuid,timestamptz) TO sushua_worker_test");
   await admin.query(
     "GRANT EXECUTE ON FUNCTION record_document_parse_v1(uuid,text,text,text,text,text,integer,text,timestamptz) TO sushua_worker_test",
@@ -120,8 +123,8 @@ async function main() {
     });
     console.log("  ✓ Redis Job 被实际 Worker 消费，真实 clamd clean 后 Job/Asset 同时落入成功终态");
 
-    const parse = await seedParseJob(admin, clean);
-    await dispatcher.dispatch(parse.envelope);
+    const parse = await scheduledParseJob(admin, clean.versionId);
+    assert.ok(parse, "clean scan must atomically schedule document.parse");
     const parseQueueJob = await queue.getJob(parse.jobId);
     assert.ok(parseQueueJob);
     assert.deepEqual(await parseQueueJob.waitUntilFinished(events, 10_000), { state: "succeeded" });
@@ -143,6 +146,7 @@ async function main() {
       scan_status: "infected",
       scan_error_code: "malware_detected",
     });
+    assert.equal(await scheduledParseJob(admin, infected.versionId), undefined);
     assert.deepEqual(workerErrors, []);
     console.log("  ✓ EICAR 经同一队列链写 infected，Job 明确 failed 且无未处理 Worker 错误");
   } finally {
@@ -218,45 +222,17 @@ async function seed(admin: Pool, suffix: string, bytes: Buffer) {
   };
 }
 
-async function seedParseJob(admin: Pool, source: Awaited<ReturnType<typeof seed>>) {
-  const jobId = uuidv7();
-  const traceId = uuidv7();
-  const now = new Date();
-  const progress = { phase: "queued", percent: 0, updatedAt: now.toISOString() };
-  await admin.query(
-    `INSERT INTO jobs(id,resource_id,type,workspace_id,idempotency_key,request_hash,schema_version,trace_id,priority,budget,
-      state,progress,attempt,max_attempts,run_after,requested_at,updated_at)
-     VALUES($1,$2,'document.parse',$3,$4,$5,1,$6,0,'{}','queued',$7,0,3,$8,$8,$8)`,
-    [
-      jobId,
-      source.versionId,
-      source.workspaceId,
-      `document.parse:${source.versionId}`,
-      "f".repeat(64),
-      traceId,
-      progress,
-      now,
-    ],
-  );
-  return {
-    jobId,
-    envelope: {
-      schemaVersion: 1 as const,
-      id: jobId,
-      type: "document.parse" as const,
-      workspaceId: source.workspaceId,
-      resourceId: source.versionId,
-      idempotencyKey: `document.parse:${source.versionId}`,
-      traceId,
-      requestedAt: now.toISOString(),
-      priority: 0,
-      budget: {},
-    },
-  };
-}
-
 function chunks(value: Buffer): AsyncIterable<Uint8Array> {
   return { async *[Symbol.asyncIterator]() { yield value; } };
+}
+
+async function scheduledParseJob(admin: Pool, versionId: string) {
+  const result = await admin.query(
+    `SELECT id AS "jobId" FROM jobs
+     WHERE resource_id=$1 AND type='document.parse' ORDER BY requested_at,id LIMIT 1`,
+    [versionId],
+  );
+  return result.rows[0] as { jobId: string } | undefined;
 }
 
 async function persisted(admin: Pool, jobId: string, assetId: string) {
