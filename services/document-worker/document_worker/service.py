@@ -5,9 +5,10 @@ import json
 from hashlib import sha256
 from typing import Any
 
+from sushua_document_service.storage import StorageAdapter
+
 from .contracts import ParseRequest, ParseResponse, ParseResult
 from .parsers import DocumentParser
-from .storage import StorageAdapter
 
 
 class DocumentServiceError(Exception):

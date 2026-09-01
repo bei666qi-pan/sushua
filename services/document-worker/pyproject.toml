@@ -7,6 +7,7 @@ dependencies = [
   "boto3==1.43.85",
   "fastapi==0.141.1",
   "markitdown[docx,pptx,xlsx]==0.1.7",
+  "sushua-document-service-core",
   "uvicorn==0.52.4",
 ]
 
@@ -22,6 +23,9 @@ dev = [
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+sushua-document-service-core = { path = "../../packages/document-service-python" }
 
 [tool.mypy]
 python_version = "3.11"

@@ -4,15 +4,28 @@ version = "0.1.0"
 description = "Isolated Docling runtime for SuShua document conversion"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+  "boto3==1.43.85",
   "docling==2.124.0",
+  "fastapi==0.141.1",
+  "sushua-document-service-core",
   "torch==2.13.0",
   "torchvision==0.28.0",
+  "uvicorn==0.52.4",
+]
+
+[dependency-groups]
+dev = [
+  "boto3-stubs[s3]==1.43.85",
+  "mypy==2.3.1",
+  "pip-audit==2.10.1",
+  "ruff==0.16.5",
 ]
 
 [tool.uv]
 package = false
 
 [tool.uv.sources]
+sushua-document-service-core = { path = "../../packages/document-service-python" }
 torch = { index = "pytorch-cpu" }
 torchvision = { index = "pytorch-cpu" }
 
@@ -20,3 +33,14 @@ torchvision = { index = "pytorch-cpu" }
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "SIM", "UP"]

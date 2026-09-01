@@ -7,30 +7,28 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sushua_document_service.storage import storage_from_environment
 
-from .contracts import ParseRequest, ParseResponse
-from .parsers import MarkItDownParser, PlainTextParser
-from .service import DocumentProcessingService, DocumentServiceError, error_body
+from .contracts import ConvertRequest, ConvertResponse
+from .service import DoclingConversionService, DoclingServiceError, error_body
 
 
 def create_app() -> FastAPI:
-    token = os.environ.get("DOCUMENT_SERVICE_TOKEN", "")
+    token = os.environ.get("DOCLING_SERVICE_TOKEN", "")
     if not 32 <= len(token) <= 512 or "\r" in token or "\n" in token:
-        raise RuntimeError("invalid_document_service_token")
-    service = DocumentProcessingService(
+        raise RuntimeError("invalid_docling_service_token")
+    service = DoclingConversionService(
         token=token,
         storage=storage_from_environment(os.environ),
-        parsers=[PlainTextParser(), MarkItDownParser()],
     )
     app = FastAPI(
-        title="SuShua Document Service",
+        title="SuShua Docling Service",
         version="0.1.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
     )
 
-    @app.exception_handler(DocumentServiceError)
-    async def handle_service_error(_request: Request, error: DocumentServiceError) -> JSONResponse:
+    @app.exception_handler(DoclingServiceError)
+    async def handle_service_error(_request: Request, error: DoclingServiceError) -> JSONResponse:
         return JSONResponse(
             status_code=error.status_code,
             content=error_body(error.code, retryable=error.retryable),
@@ -58,13 +56,13 @@ def create_app() -> FastAPI:
             content={"schemaVersion": 1, "status": "ready" if status == 200 else "not_ready"},
         )
 
-    @app.post("/v1/parse", response_model=ParseResponse, response_model_by_alias=True)
-    async def parse(
-        body: ParseRequest,
+    @app.post("/v1/convert", response_model=ConvertResponse, response_model_by_alias=True)
+    async def convert(
+        body: ConvertRequest,
         authorization: str | None = Header(default=None),
-    ) -> ParseResponse:
+    ) -> ConvertResponse:
         service.authenticate(authorization)
-        return service.parse(body)
+        return service.convert(body)
 
     return app
 
