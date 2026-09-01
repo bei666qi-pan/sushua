@@ -1,4 +1,4 @@
-ARG PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.11-slim@sha256:1042b61448fef4ba92d16a8c7eb4996d027568ce64792a7877fd88511e0af7c6
+ARG PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.13-alpine@sha256:62e80a1ff2a4af41c6fe72a629e5729463a4fd05ae89ecc9c812a6c1457f2cc7
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.8@sha256:d1cbaeadc234fe19c0d93daabcf5e98738cd93c6d1dd4918ef6aa30735feb23a
 
 FROM ${UV_IMAGE} AS uv
@@ -21,8 +21,10 @@ ENV PATH=/opt/venv/bin:$PATH \
     STORAGE_DRIVER=s3 \
     DOCUMENT_STORAGE_ROOT=/data
 WORKDIR /app
-RUN groupadd --gid 10001 sushua \
-    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin sushua \
+RUN rm -rf /usr/local/lib/python3.13/site-packages/* \
+    && addgroup --gid 10001 --system sushua \
+    && adduser --uid 10001 --system --disabled-password --no-create-home \
+      --home /nonexistent --shell /sbin/nologin --ingroup sushua sushua \
     && mkdir --mode=0750 /data \
     && chown 10001:10001 /data
 COPY --from=dependencies /opt/venv /opt/venv

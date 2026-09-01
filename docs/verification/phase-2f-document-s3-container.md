@@ -5,7 +5,7 @@
 - Add a boto3 S3-compatible `StorageAdapter` selected by `STORAGE_DRIVER=s3`.
 - Validate endpoint, region, bucket and explicit credentials before client creation.
 - Translate SDK failures into the existing bounded service error contract.
-- Build a Python 3.11 image with a frozen base and uv image digest.
+- Build a Python 3.13 Alpine image with frozen Python and uv image digests. The superseded 3.11 slim baseline had 19 HIGH/CRITICAL findings in Trivy 0.74.0, and 3.11 Alpine still had three Python-binary HIGH findings in Grype 0.118.0; the selected final image must pass both scanners with zero HIGH/CRITICAL.
 - Run as numeric UID/GID 10001 without dev dependencies or build tooling.
 - Generate and scan a dedicated Document Service SBOM/image in CI.
 

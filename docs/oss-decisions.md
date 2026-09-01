@@ -88,7 +88,7 @@
 |---|---|---|---|
 | boto3 | 9,893 Star；PyPI 1.43.85 于 2026-08-31 发布；最后提交 2026-08-31 | Apache-2.0 | 精确固定 1.43.85，作为 Document Service 的生产 S3-compatible Adapter。GitHub 当前无 repository advisory。Adapter 强制 SigV4、显式凭证、受限 endpoint/region/bucket 配置和对象键校验；SDK 异常只映射为安全错误码，不把响应或凭证写入日志。 |
 | Moto | 8,637 Star；5.2.3 于 2026-08-22 发布；最后提交 2026-08-28 | Apache-2.0 | 只作为开发依赖，精确固定 `moto[server]` 5.2.3。通过真实 HTTP 与 SigV4 覆盖 boto3 读写合同，但不把模拟服务当生产 S3 可用性证据。GitHub 当前无 repository advisory。 |
-| uv container | 89,292 Star；0.12.8 | Apache-2.0 | 构建阶段只从官方多架构镜像 digest `sha256:d1cbaead…feb23a` 复制 uv；运行镜像不携带 uv。Python 3.11 slim 继续固定计划基线 digest `sha256:1042b614…af7c6`。最终镜像以数值 UID/GID 10001 运行，并在 CI 中接受 Trivy、Grype 与双格式 SBOM。 |
+| uv container | 89,292 Star；0.12.8 | Apache-2.0 | 构建阶段只从官方多架构镜像 digest `sha256:d1cbaead…feb23a` 复制 uv；运行镜像不携带 uv。原计划 Python 3.11 slim digest 在 2026-09-01 的 Trivy 0.74.0 数据库中出现 19 个 Debian HIGH/CRITICAL；Python 3.11 Alpine 虽清除 OS 问题，Grype 0.118.0 仍报告 Python 3.11.16 二进制 3 个 HIGH。故在项目既有 `>=3.11,<3.15` 范围内改用 Trivy/Grype 均无 HIGH/CRITICAL 的 Python 3.13 Alpine digest `sha256:62e80a1f…f2cc7`，并从最终层移除 pip/setuptools/wheel 等构建工具。最终镜像以数值 UID/GID 10001 运行，并在 CI 中接受 Trivy、Grype 与双格式 SBOM。 |
 
 ## Review policy
 

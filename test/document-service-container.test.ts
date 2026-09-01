@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDocumentServiceClient } from "../src/features/documents/document-service-client";
@@ -25,6 +25,16 @@ async function main() {
   assert.equal(build.status, 0, `Document Service image build failed:\n${build.stdout}\n${build.stderr}`);
   const configuredUser = docker("image", "inspect", IMAGE, "--format", "{{.Config.User}}").trim();
   assert.match(configuredUser, /^[1-9][0-9]*:[1-9][0-9]*$/, "image must use a numeric non-root uid:gid");
+  const isAlpine = docker(
+    "run", "--rm", "--entrypoint", "python", IMAGE,
+    "-c", "from pathlib import Path; print(Path('/etc/alpine-release').is_file())",
+  ).trim();
+  assert.equal(isAlpine, "True", "runtime must use the scanned zero-high Alpine OS baseline");
+  const pythonVersion = docker(
+    "run", "--rm", "--entrypoint", "python", IMAGE,
+    "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
+  ).trim();
+  assert.equal(pythonVersion, "3.13", "runtime must stay on the Grype-clean Python 3.13 line");
 
   const storageRoot = await mkdtemp(path.join(tmpdir(), "sushua-document-container-"));
   await chmod(storageRoot, 0o777);
@@ -34,6 +44,13 @@ async function main() {
   await chmod(path.join(storageRoot, "tenant"), 0o777);
   await writeFile(sourcePath, SOURCE);
   await chmod(path.dirname(sourcePath), 0o777);
+  const documentVersionPath = path.dirname(path.dirname(sourcePath));
+  await chmod(documentVersionPath, 0o777);
+  assert.notEqual(
+    (await stat(documentVersionPath)).mode & 0o002,
+    0,
+    "bind-mounted DocumentVersion directory must let the numeric container user create IR siblings",
+  );
   const containerName = `sushua-document-contract-${randomUUID()}`;
   let containerId = "";
 
