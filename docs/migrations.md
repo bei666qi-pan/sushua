@@ -35,6 +35,7 @@ Worker 角色只获得后台任务所需函数，不继承 Web 角色权限。Ph
 GRANT USAGE ON SCHEMA public TO <worker_role>;
 GRANT EXECUTE ON FUNCTION purge_expired_guest_learners(timestamptz, integer) TO <worker_role>;
 GRANT EXECUTE ON FUNCTION transition_job_v1(uuid, text, jsonb, jsonb, text, timestamptz, timestamptz) TO <worker_role>;
+GRANT EXECUTE ON FUNCTION claim_job_v1(uuid, integer, timestamptz) TO <worker_role>;
 ```
 
 这些后台函数保持 `PUBLIC` 权限撤销；Worker 无需获得租户表或 `jobs` 的直接 `UPDATE` / `DELETE` 权限。Web 读取 `jobs` 时仍通过强制 RLS，并需要已有的 `workspace_members` 读权限供策略判断成员身份。

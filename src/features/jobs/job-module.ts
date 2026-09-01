@@ -13,7 +13,7 @@ type JobRequest = {
   budget: { maxCostFen?: number; maxTokens?: number };
   maxAttempts: number;
 };
-type JobState = "queued" | "running" | "succeeded" | "partially_succeeded" | "failed"
+export type JobState = "queued" | "running" | "succeeded" | "partially_succeeded" | "failed"
   | "dead_lettered" | "cancel_requested" | "cancelled";
 type JobProgress = {
   phase: string;
@@ -23,7 +23,7 @@ type JobProgress = {
   messageCode?: string;
   updatedAt: string;
 };
-type JobSnapshot = {
+export type JobSnapshot = {
   id: string;
   workspaceId: string;
   learnerId?: string;
@@ -36,6 +36,11 @@ type JobSnapshot = {
   maxAttempts: number;
   errorCode?: string;
   runAfter: string;
+  timeoutAt?: string;
+};
+export type JobClaim = {
+  status: "claimed" | "busy" | "not_due" | "ignored";
+  job: JobSnapshot;
 };
 type JobEvent =
   | { type: "start" }
@@ -112,6 +117,26 @@ export function createJobModule(runtime: PostgresRuntime, options: {
       return runtime.withTenant(actor, async ({ query }) => {
         const result = await query<RawJob>("SELECT * FROM jobs WHERE id = $1", [jobId]);
         return result.rows[0] ? snapshotFromRaw(result.rows[0]) : undefined;
+      });
+    },
+
+    async claim(jobId: string, leaseSeconds: number): Promise<JobClaim> {
+      assertUuid(jobId, "invalid_job_id");
+      if (!Number.isInteger(leaseSeconds) || leaseSeconds < 1 || leaseSeconds > 3600) {
+        throw new Error("invalid_job_lease");
+      }
+      const eventAt = now();
+      return runtime.withTenant({ learnerId: newId() }, async ({ query }) => {
+        const result = await query<{ result: { status: JobClaim["status"]; job: RawJob } }>(
+          "SELECT claim_job_v1($1,$2,$3) AS result",
+          [jobId, leaseSeconds, eventAt],
+        );
+        const row = result.rows[0]?.result;
+        if (!row) throw new Error("job_claim_no_result");
+        if (!["claimed", "busy", "not_due", "ignored"].includes(row.status)) {
+          throw new Error("invalid_job_claim_status");
+        }
+        return { status: row.status, job: snapshotFromRaw(row.job) };
       });
     },
 
@@ -217,6 +242,7 @@ function snapshotFromRaw(row: RawJob): JobSnapshot {
     maxAttempts: numberField(row.max_attempts, "invalid_job_row"),
     ...(row.error_code ? { errorCode: stringField(row.error_code, "invalid_job_row") } : {}),
     runAfter: iso(row.run_after),
+    ...(row.timeout_at ? { timeoutAt: iso(row.timeout_at) } : {}),
   };
 }
 
