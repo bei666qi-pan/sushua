@@ -42,5 +42,9 @@
 | Magika | 0.6.3 | Apache-2.0 | https://github.com/google/magika |
 | ONNX Runtime | 1.20.1 | MIT | https://github.com/microsoft/onnxruntime |
 | Python | 3.13.15 slim image digest `sha256:881d8073…a6a6ec2` | PSF-2.0；Debian 组件按各包许可 | https://hub.docker.com/_/python |
+| Docling | 2.124.0 | MIT | https://github.com/docling-project/docling |
+| PyTorch CPU | 2.13.0+cpu | BSD-3-Clause | https://github.com/pytorch/pytorch |
+| Torchvision CPU | 0.28.0+cpu | BSD-3-Clause | https://github.com/pytorch/vision |
+| Python | 3.12.14 slim image digest `sha256:e5c9fa26…2d899fc` | PSF-2.0；Debian 组件按各包许可 | https://hub.docker.com/_/python |
 
 各软件版权归其贡献者所有，并按上游许可证提供。本文件不改变任何上游许可证条款。
