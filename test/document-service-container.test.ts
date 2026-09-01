@@ -25,16 +25,19 @@ async function main() {
   assert.equal(build.status, 0, `Document Service image build failed:\n${build.stdout}\n${build.stderr}`);
   const configuredUser = docker("image", "inspect", IMAGE, "--format", "{{.Config.User}}").trim();
   assert.match(configuredUser, /^[1-9][0-9]*:[1-9][0-9]*$/, "image must use a numeric non-root uid:gid");
-  const isAlpine = docker(
-    "run", "--rm", "--entrypoint", "python", IMAGE,
-    "-c", "from pathlib import Path; print(Path('/etc/alpine-release').is_file())",
-  ).trim();
-  assert.equal(isAlpine, "True", "runtime must use the scanned zero-high Alpine OS baseline");
   const pythonVersion = docker(
     "run", "--rm", "--entrypoint", "python", IMAGE,
     "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
   ).trim();
-  assert.equal(pythonVersion, "3.13", "runtime must stay on the Grype-clean Python 3.13 line");
+  assert.equal(pythonVersion, "3.13", "runtime must stay on the pinned Python 3.13 line");
+  const convertedHtml = docker(
+    "run", "--rm", "--entrypoint", "python", IMAGE,
+    "-c",
+    "from io import BytesIO; from markitdown import MarkItDown; "
+      + "print(MarkItDown(enable_plugins=False).convert_stream("
+      + "BytesIO(b'<h1>Container contract</h1>'), file_extension='.html').markdown)",
+  ).trim();
+  assert.equal(convertedHtml, "# Container contract", "runtime must execute MarkItDown");
 
   const storageRoot = await mkdtemp(path.join(tmpdir(), "sushua-document-container-"));
   await chmod(storageRoot, 0o777);

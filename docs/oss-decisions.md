@@ -76,7 +76,7 @@
 | FastAPI | 101,983 Star；0.141.1 于 2026-07-29 发布；最后提交 2026-08-26 | MIT | 精确固定 0.141.1，作为仅内网可达的 Document Service HTTP 层。GitHub 当前唯一仓库公告为影响 `<0.65.2` 的 medium，所选版本不受影响。首个增量只暴露最小 live/ready 与带 Bearer token 的 `/v1/parse`，关闭 OpenAPI/Swagger，不记录正文或 token。 |
 | Uvicorn | 10,939 Star；0.52.4 于 2026-08-19 发布；最后提交 2026-08-30 | BSD-3-Clause | 精确固定 0.52.4，作为 FastAPI ASGI Server。GitHub 当前无 repository advisory。服务通过显式内部地址启动；生产容器、S3 Adapter 和资源限制将在独立增量验证，不能把本 PR 的本地对象 Adapter 视为生产部署。 |
 | Docling | 65,827 Star；2.124.0 于 2026-08-31 发布；最后提交 2026-08-31 | MIT | 本 PR **不安装**。GHSA-4xhp-xg4w-8ppm 披露 ODF `draw:image` 可读宿主文件，公告元数据给出的修复版为 2.120.3；最新 2.124.0 已越过该修复点，历史 high 也在 2.94.0 前修复。后续接入仍须在无宿主挂载、只读根、任务隔离目录中复现恶意 ODF 回归并以当日扫描结果放行。 |
-| MarkItDown | 177,441 Star；0.1.7 于 2026-07-29 发布；最后提交 2026-08-31 | MIT | 本 PR **不安装**，保留为简单 Office/HTML/文本降级候选。GitHub 当前无 repository advisory；接入时必须经相同对象键、输出 Schema 和沙箱边界，不允许绕过 Document IR 校验。 |
+| MarkItDown | 177,441 Star；0.1.7 于 2026-07-29 发布；最后提交 2026-08-31 | MIT | 本节所记首个 Document Service PR 未安装；2026-09-01 的后续 Adapter 决策见下方增量复核。 |
 | uv | 89,292 Star；0.12.8 于 2026-08-31 发布；最后提交 2026-09-01 | Apache-2.0 | CI 工具精确固定 0.12.8；`uv.lock` 保存完整版本、文件 URL 与 SHA256，`--frozen` 禁止门禁期间改锁。已发布 medium 均影响 `<0.11.15` 等旧版本，所选版本不受影响。 |
 | Ruff | 49,415 Star；0.16.5 于 2026-08-27 发布；最后提交 2026-08-31 | MIT | 开发门禁精确固定 0.16.5，检查 Document Service；GitHub 当前无 repository advisory。 |
 | mypy | 20,624 Star；2.3.1 于 2026-08-15 发布；最后提交 2026-09-01 | MIT | 开发门禁精确固定 2.3.1 并启用 strict；GitHub 当前无 repository advisory。 |
@@ -90,9 +90,16 @@
 | Moto | 8,637 Star；5.2.3 于 2026-08-22 发布；最后提交 2026-08-28 | Apache-2.0 | 只作为开发依赖，精确固定 `moto[server]` 5.2.3。通过真实 HTTP 与 SigV4 覆盖 boto3 读写合同，但不把模拟服务当生产 S3 可用性证据。GitHub 当前无 repository advisory。 |
 | uv container | 89,292 Star；0.12.8 | Apache-2.0 | 构建阶段只从官方多架构镜像 digest `sha256:d1cbaead…feb23a` 复制 uv；运行镜像不携带 uv。原计划 Python 3.11 slim digest 在 2026-09-01 的 Trivy 0.74.0 数据库中出现 19 个 Debian HIGH/CRITICAL；Python 3.11 Alpine 虽清除 OS 问题，Grype 0.118.0 仍报告 Python 3.11.16 二进制 3 个 HIGH。故在项目既有 `>=3.11,<3.15` 范围内改用 Trivy/Grype 均无 HIGH/CRITICAL 的 Python 3.13 Alpine digest `sha256:62e80a1f…f2cc7`，并从最终层移除 pip/setuptools/wheel 等构建工具。最终镜像以数值 UID/GID 10001 运行，并在 CI 中接受 Trivy、Grype 与双格式 SBOM。 |
 
+2026-09-01 MarkItDown Adapter 增量复核：
+
+| 组件 | 快照 | 许可 | 决定与安全结论 |
+|---|---|---|---|
+| MarkItDown | 177,477 Star；0.1.7；2026-08-31 活跃 | MIT | 精确固定 `markitdown[docx,pptx,xlsx]` 0.1.7，作为 HTML、DOCX、PPTX 和 XLSX 的简单降级 Adapter。它只接收已通过文件扫描和对象完整性校验的字节流，关闭 plugin，结果统一写入 `sushua.document-ir.v1`；不伪造页面版面真值，bbox 为全页且置信度为 0.8。Adapter 在调用前校验 Office ZIP 核心部件和解压预算，阻止 MarkItDown 对损坏 Office 包的纯文本伪成功回退。GitHub 当前无 repository advisory，`pip-audit` 无已知漏洞。如后续 Docling 可稳定覆盖这些格式，可在 Parser 注册处替换而不改 Web 协议。 |
+| Magika / ONNX Runtime | Magika 17,987 Star、0.6.3、Apache-2.0；ONNX Runtime 21,697 Star、1.20.1、MIT；两个上游均在 2026-09-01 复核 | Apache-2.0 / MIT | MarkItDown 0.1.7 无条件引入 Magika，Magika 再引入 ONNX Runtime。ONNX Runtime 1.20.1 无 musllinux wheel，因此文档镜像改为 Python 3.13.15 Debian slim 多架构 digest `sha256:881d8073…a6a6ec2`，不再以 Alpine 为选型目标。两个仓库当前均无 repository advisory，锁定环境 `pip-audit` 无已知漏洞。当日 Trivy 报告 Debian 基础层 13 HIGH / 3 CRITICAL，Grype 也报告 libc、Perl、ncurses、gzip、SQLite 等无上游修复版本的 HIGH/CRITICAL；Python 包扫描为 0。这些系统路径不被服务主动调用，但不等于零风险。根据用户对 MarkItDown 优先的明确取舍，仅 Document Service 镜像的 Trivy/Grype 保留全量报告但改为非阻断；Web、仓库和 ClamAV 门禁不放宽。补偿控制为数值非 root、只读根、drop capabilities、no-new-privileges、无宿主挂载与内网服务边界；每次 PR 重新扫描，出现修复版后恢复阻断。 |
+
 ## Review policy
 
 - npm 包全部精确固定；lockfile 由 `npm ci` 验证可复现。
 - GitHub Actions 固定到完整 commit SHA，工具自身再固定版本。
-- npm audit、Trivy 或 Grype 的 HIGH/CRITICAL 均阻断；例外需要用户明确批准并在 7 天内到期。
+- npm audit、Trivy 或 Grype 的 HIGH/CRITICAL 默认阻断。例外必须限定到具体镜像、记录扫描结果和补偿控制；当前唯一例外是用户 2026-09-01 明确批准的 MarkItDown Document Service Debian 基础层，其他镜像仍阻断。
 - 新核心进程依赖不得使用 AGPL、SSPL、BSL、非商业或来源不明许可。

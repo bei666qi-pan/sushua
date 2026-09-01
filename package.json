@@ -12,8 +12,9 @@
     "start": "next start",
     "worker:job": "tsx apps/job-worker/src/index.ts",
     "document:sync": "uv sync --frozen --project services/document-worker",
+    "document:test": "uv run --frozen --directory services/document-worker python -B -m unittest discover -s tests -p 'test_*.py' -v",
     "document:typecheck": "uv run --frozen --project services/document-worker mypy services/document-worker/document_worker",
-    "document:lint": "uv run --frozen --project services/document-worker ruff check services/document-worker/document_worker",
+    "document:lint": "uv run --frozen --project services/document-worker ruff check services/document-worker/document_worker services/document-worker/tests",
     "document:audit": "uv run --frozen --project services/document-worker pip-audit",
     "test": "npm run test:unit && npm run test:golden && npm run test:integration",
     "test:container": "tsx test/document-service-container.test.ts",
@@ -28,7 +29,7 @@
     "legacy:backfill": "tsx scripts/backfill-legacy-workspaces.ts",
     "legacy:reconcile": "tsx scripts/reconcile-legacy-workspaces.ts",
     "guest:cleanup": "tsx scripts/cleanup-expired-guests.ts",
-    "ci:verify": "npm run document:sync && npm run test && npm run test:container && npm run typecheck && npm run document:typecheck && npm run lint && npm run document:lint && npm run build && npm run audit && npm run document:audit"
+    "ci:verify": "npm run document:sync && npm run document:test && npm run test && npm run test:container && npm run typecheck && npm run document:typecheck && npm run lint && npm run document:lint && npm run build && npm run audit && npm run document:audit"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1122.0",

@@ -16,6 +16,11 @@ const IDS = {
   sourceAssetId: "019c9e68-62b6-7f58-a10b-7bbd5532cdd5",
 };
 const SOURCE_TEXT = "第一章 细胞结构\n细胞膜控制物质进出细胞。\n";
+const HTML_SOURCE = Buffer.from(
+  "<h1>光合作用</h1><p>叶绿体将光能转化为化学能。</p><script>document.cookie</script>",
+  "utf8",
+);
+const HTML_ASSET_ID = "019c9e68-62b6-7f58-a10b-7bbd5532cdd6";
 
 async function main() {
   const storageRoot = await mkdtemp(path.join(tmpdir(), "sushua-document-service-"));
@@ -27,6 +32,10 @@ async function main() {
   const sourcePath = path.join(storageRoot, ...sourceObjectKey.split("/"));
   await mkdir(path.dirname(sourcePath), { recursive: true });
   await writeFile(sourcePath, SOURCE_TEXT, "utf8");
+  const htmlObjectKey = (
+    `tenant/${IDS.workspaceId}/${IDS.documentId}/${IDS.documentVersionId}/source/${HTML_ASSET_ID}`
+  );
+  await writeFile(path.join(storageRoot, ...htmlObjectKey.split("/")), HTML_SOURCE);
   const sourceBytes = Buffer.from(SOURCE_TEXT, "utf8");
   const sourceSha256 = createHash("sha256").update(sourceBytes).digest("hex");
   const service = startService({ port, storageRoot });
@@ -106,6 +115,25 @@ async function main() {
       },
     });
     console.log("  ✓ 真实服务读取租户对象、验证 hash/长度并写回可校验的 Document IR v1");
+
+    const htmlSha256 = createHash("sha256").update(HTML_SOURCE).digest("hex");
+    const htmlResult = await client.parse({
+      ...target,
+      sourceAssetId: HTML_ASSET_ID,
+      sourceObjectKey: htmlObjectKey,
+      sourceSha256: htmlSha256,
+      sizeBytes: HTML_SOURCE.byteLength,
+      mimeType: "text/html",
+    }, new AbortController().signal);
+    assert.equal(htmlResult.parser, "markitdown");
+    assert.equal(htmlResult.parserVersion, "0.1.7");
+    const htmlIr = JSON.parse(
+      await readFile(path.join(storageRoot, ...htmlResult.irObjectKey.split("/")), "utf8"),
+    ) as { document: { pages: Array<{ blocks: Array<{ markdown: string }> }> } };
+    assert.match(htmlIr.document.pages[0].blocks[0].markdown, /# 光合作用/);
+    assert.match(htmlIr.document.pages[0].blocks[0].markdown, /叶绿体将光能转化为化学能/);
+    assert.doesNotMatch(htmlIr.document.pages[0].blocks[0].markdown, /document\.cookie/);
+    console.log("  ✓ HTML 经 MarkItDown Adapter 转换并写回不含活动脚本的 IR");
 
     const unauthorized = await fetch(`${baseUrl}/v1/parse`, {
       method: "POST",
