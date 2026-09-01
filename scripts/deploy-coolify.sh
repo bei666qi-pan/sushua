@@ -46,8 +46,19 @@ version_payload="$(jq -nc \
   --arg value "${APP_VERSION}" \
   '{key:$key,value:$value,is_preview:false,is_literal:true}')"
 
+current_envs="$(
+  coolify_curl \
+    "${coolify_base_url}/api/v1/applications/${COOLIFY_APP_UUID}/envs"
+)"
+if jq -e 'any(.[]; .key == "APP_VERSION" and .is_preview == false)' \
+  <<<"${current_envs}" >/dev/null; then
+  env_method=PATCH
+else
+  env_method=POST
+fi
+
 coolify_curl \
-  -X PATCH \
+  -X "${env_method}" \
   -H "Content-Type: application/json" \
   --data-binary "${version_payload}" \
   "${coolify_base_url}/api/v1/applications/${COOLIFY_APP_UUID}/envs" \
