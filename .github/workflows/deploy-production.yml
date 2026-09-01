@@ -1,0 +1,81 @@
+name: Deploy Production
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment: production
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      GITEE_REPOSITORY: ${{ vars.GITEE_REPOSITORY }}
+      COOLIFY_APP_UUID: ${{ vars.COOLIFY_APP_UUID }}
+      PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+    steps:
+      - name: Check out the verified main commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+          fetch-depth: 0
+
+      - name: Verify the deployment inputs
+        env:
+          GITEE_USER: ${{ secrets.GITEE_USER }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          COOLIFY_BASE_URL: ${{ secrets.COOLIFY_BASE_URL }}
+          COOLIFY_API_KEY: ${{ secrets.COOLIFY_API_KEY }}
+        run: |
+          set -euo pipefail
+          for name in DEPLOY_SHA GITEE_REPOSITORY GITEE_USER GITEE_TOKEN COOLIFY_BASE_URL COOLIFY_API_KEY COOLIFY_APP_UUID PRODUCTION_URL; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Required deployment input is missing: ${name}" >&2
+              exit 1
+            fi
+          done
+          [[ "$(git rev-parse HEAD)" == "${DEPLOY_SHA}" ]]
+
+      - name: Mirror the verified commit to Gitee master
+        env:
+          GITEE_USER: ${{ secrets.GITEE_USER }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          askpass="$(mktemp)"
+          trap 'rm -f "${askpass}"' EXIT
+          chmod 700 "${askpass}"
+          printf '%s\n' \
+            '#!/usr/bin/env sh' \
+            'case "$1" in' \
+            '  *Username*) printf "%s\n" "$GITEE_USER" ;;' \
+            '  *) printf "%s\n" "$GITEE_TOKEN" ;;' \
+            'esac' > "${askpass}"
+
+          remote="https://gitee.com/${GITEE_REPOSITORY}.git"
+          GIT_ASKPASS="${askpass}" GIT_TERMINAL_PROMPT=0 git push "${remote}" HEAD:master
+          remote_sha="$(GIT_ASKPASS="${askpass}" GIT_TERMINAL_PROMPT=0 git ls-remote "${remote}" refs/heads/master | awk '{print $1}')"
+          [[ "${remote_sha}" == "${DEPLOY_SHA}" ]]
+          echo "Gitee master now points to ${DEPLOY_SHA}."
+
+      - name: Deploy with Coolify and verify production
+        env:
+          APP_VERSION: ${{ env.DEPLOY_SHA }}
+          COOLIFY_BASE_URL: ${{ secrets.COOLIFY_BASE_URL }}
+          COOLIFY_API_KEY: ${{ secrets.COOLIFY_API_KEY }}
+        run: bash scripts/deploy-coolify.sh

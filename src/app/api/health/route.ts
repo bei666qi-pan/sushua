@@ -15,7 +15,7 @@ export async function GET() {
   const budget = dbOk ? budgetState() : null;
   return NextResponse.json({
     ok: dbOk,
-    version: "1.0.0",
+    version: process.env.APP_VERSION || "1.0.0",
     db: { ok: dbOk, banks: bankCount },
     ai: { configured: aiConfigured(), model: modelName() },
     budget: budget && {
