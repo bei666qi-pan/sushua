@@ -6,6 +6,7 @@ from typing import Any, Protocol
 from zipfile import BadZipFile, ZipFile
 
 from markitdown import MarkItDown
+from sushua_document_service.contracts import SourceReference
 
 
 @dataclass(frozen=True)
@@ -15,10 +16,34 @@ class ParsedDocument:
     pages: list[dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class ParserContext:
+    trace_id: str
+    workspace_id: str
+    document_id: str
+    document_version_id: str
+    source: SourceReference
+    parse_config: dict[str, Any]
+
+
+class ParserError(Exception):
+    def __init__(self, code: str, status_code: int, *, retryable: bool = False) -> None:
+        super().__init__(code)
+        self.code = code
+        self.status_code = status_code
+        self.retryable = retryable
+
+
 class DocumentParser(Protocol):
     def supports(self, mime_type: str) -> bool: ...
 
-    def parse(self, content: bytes, mime_type: str, source_sha256: str) -> ParsedDocument: ...
+    def parse(
+        self,
+        content: bytes,
+        mime_type: str,
+        source_sha256: str,
+        context: ParserContext | None = None,
+    ) -> ParsedDocument: ...
 
 
 class PlainTextParser:
@@ -29,7 +54,13 @@ class PlainTextParser:
     def supports(self, mime_type: str) -> bool:
         return mime_type in self._mime_types
 
-    def parse(self, content: bytes, mime_type: str, source_sha256: str) -> ParsedDocument:
+    def parse(
+        self,
+        content: bytes,
+        mime_type: str,
+        source_sha256: str,
+        context: ParserContext | None = None,
+    ) -> ParsedDocument:
         if not self.supports(mime_type):
             raise ValueError("unsupported_media_type")
         try:
@@ -97,7 +128,13 @@ class MarkItDownParser:
     def supports(self, mime_type: str) -> bool:
         return mime_type in self._mime_type_extensions
 
-    def parse(self, content: bytes, mime_type: str, source_sha256: str) -> ParsedDocument:
+    def parse(
+        self,
+        content: bytes,
+        mime_type: str,
+        source_sha256: str,
+        context: ParserContext | None = None,
+    ) -> ParsedDocument:
         extension = self._mime_type_extensions.get(mime_type)
         if extension is None:
             raise ValueError("unsupported_media_type")

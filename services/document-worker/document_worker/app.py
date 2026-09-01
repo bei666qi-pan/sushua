@@ -8,7 +8,8 @@ from fastapi.responses import JSONResponse
 from sushua_document_service.storage import storage_from_environment
 
 from .contracts import ParseRequest, ParseResponse
-from .parsers import MarkItDownParser, PlainTextParser
+from .docling_adapter import adapter_from_environment
+from .parsers import DocumentParser, MarkItDownParser, PlainTextParser
 from .service import DocumentProcessingService, DocumentServiceError, error_body
 
 
@@ -16,10 +17,16 @@ def create_app() -> FastAPI:
     token = os.environ.get("DOCUMENT_SERVICE_TOKEN", "")
     if not 32 <= len(token) <= 512 or "\r" in token or "\n" in token:
         raise RuntimeError("invalid_document_service_token")
+    storage = storage_from_environment(os.environ)
+    parsers: list[DocumentParser] = [PlainTextParser()]
+    docling = adapter_from_environment(os.environ, storage)
+    if docling is not None:
+        parsers.append(docling)
+    parsers.append(MarkItDownParser())
     service = DocumentProcessingService(
         token=token,
-        storage=storage_from_environment(os.environ),
-        parsers=[PlainTextParser(), MarkItDownParser()],
+        storage=storage,
+        parsers=parsers,
     )
     app = FastAPI(
         title="SuShua Document Service",

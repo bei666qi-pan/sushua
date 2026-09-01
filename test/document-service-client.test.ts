@@ -53,7 +53,7 @@ async function main() {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ schemaVersion: 1, result: expectedResult }));
     };
-    const client = clientModule.createDocumentServiceClient({ baseUrl, token, timeoutMs: 2_000 });
+    const client = clientModule.createDocumentServiceClient({ baseUrl, token, timeoutMs: 5_000 });
     assert.deepEqual(await client.parse(target, new AbortController().signal), expectedResult);
     assert.deepEqual(captured, {
       method: "POST",

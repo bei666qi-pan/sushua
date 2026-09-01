@@ -8,7 +8,7 @@ from typing import Any
 from sushua_document_service.storage import StorageAdapter
 
 from .contracts import ParseRequest, ParseResponse, ParseResult
-from .parsers import DocumentParser
+from .parsers import DocumentParser, ParserContext, ParserError
 
 
 class DocumentServiceError(Exception):
@@ -67,7 +67,25 @@ class DocumentProcessingService:
         ):
             raise DocumentServiceError("source_integrity_mismatch", 409)
         try:
-            parsed = parser.parse(source, request.source.mime_type, request.source.sha256)
+            parsed = parser.parse(
+                source,
+                request.source.mime_type,
+                request.source.sha256,
+                ParserContext(
+                    trace_id=request.trace_id,
+                    workspace_id=request.workspace_id,
+                    document_id=request.document_id,
+                    document_version_id=request.document_version_id,
+                    source=request.source,
+                    parse_config=request.parse_config,
+                ),
+            )
+        except ParserError as error:
+            raise DocumentServiceError(
+                error.code,
+                error.status_code,
+                retryable=error.retryable,
+            ) from error
         except ValueError as error:
             raise DocumentServiceError(str(error), 422) from error
 
