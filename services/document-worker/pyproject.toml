@@ -4,13 +4,16 @@ version = "0.1.0"
 description = "Internal SuShua document parsing service"
 requires-python = ">=3.11,<3.15"
 dependencies = [
+  "boto3==1.43.85",
   "fastapi==0.141.1",
   "uvicorn==0.52.4",
 ]
 
 [dependency-groups]
 dev = [
+  "boto3-stubs[s3]==1.43.85",
   "mypy==2.3.1",
+  "moto[server]==5.2.3",
   "pip-audit==2.10.1",
   "ruff==0.16.5",
 ]

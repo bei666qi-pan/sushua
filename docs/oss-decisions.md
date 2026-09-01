@@ -82,6 +82,14 @@
 | mypy | 20,624 Star；2.3.1 于 2026-08-15 发布；最后提交 2026-09-01 | MIT | 开发门禁精确固定 2.3.1 并启用 strict；GitHub 当前无 repository advisory。 |
 | pip-audit | 1,359 Star；2.10.1 于 2026-06-10 发布；最后提交 2026-08-31 | Apache-2.0 | 虽低于大型运行时项目，但它是 PyPA 官方安全门禁工具而非产品能力；精确固定 2.10.1，审计锁定后的 Python 环境。GitHub 当前无 repository advisory。 |
 
+2026-09-01 S3 与容器增量复核：
+
+| 组件 | 快照 | 许可 | 决定与安全结论 |
+|---|---|---|---|
+| boto3 | 9,893 Star；PyPI 1.43.85 于 2026-08-31 发布；最后提交 2026-08-31 | Apache-2.0 | 精确固定 1.43.85，作为 Document Service 的生产 S3-compatible Adapter。GitHub 当前无 repository advisory。Adapter 强制 SigV4、显式凭证、受限 endpoint/region/bucket 配置和对象键校验；SDK 异常只映射为安全错误码，不把响应或凭证写入日志。 |
+| Moto | 8,637 Star；5.2.3 于 2026-08-22 发布；最后提交 2026-08-28 | Apache-2.0 | 只作为开发依赖，精确固定 `moto[server]` 5.2.3。通过真实 HTTP 与 SigV4 覆盖 boto3 读写合同，但不把模拟服务当生产 S3 可用性证据。GitHub 当前无 repository advisory。 |
+| uv container | 89,292 Star；0.12.8 | Apache-2.0 | 构建阶段只从官方多架构镜像 digest `sha256:d1cbaead…feb23a` 复制 uv；运行镜像不携带 uv。Python 3.11 slim 继续固定计划基线 digest `sha256:1042b614…af7c6`。最终镜像以数值 UID/GID 10001 运行，并在 CI 中接受 Trivy、Grype 与双格式 SBOM。 |
+
 ## Review policy
 
 - npm 包全部精确固定；lockfile 由 `npm ci` 验证可复现。
