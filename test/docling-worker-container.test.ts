@@ -114,6 +114,7 @@ async function verifyHttpBoundary(fixtures: string) {
     const response = JSON.parse(responseText) as {
       result: { conversionObjectKey: string; conversionSha256: string };
     };
+    grantHostFixtureAccess(containerName, conversionDirectory);
     const converted = await readFile(path.join(fixtures, ...response.result.conversionObjectKey.split("/")));
     assert.equal(
       createHash("sha256").update(converted).digest("hex"),
