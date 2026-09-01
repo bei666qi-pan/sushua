@@ -151,7 +151,7 @@ npm run audit    # 生产依赖 HIGH/CRITICAL 门禁
 npm run ci:verify
 ```
 
-Phase 1 起，完整测试需要真实 PostgreSQL 17 + pgvector 0.8.6；Phase 2 起还需要 Redis 8.2.1 和 ClamAV 1.5.4。分别通过 `TEST_DATABASE_URL`、`TEST_REDIS_URL`、`TEST_CLAMAV_HOST` 和 `TEST_CLAMAV_PORT` 指向隔离测试实例。集成测试会重建 PostgreSQL 的 `public` schema、清除自己的随机 Redis 测试队列，并向真实 clamd 发送标准 EICAR 测试串；禁止指向开发或生产实例。ClamAV 官方 1.5.4 镜像目前仅提供 `linux/amd64`，Apple Silicon 本地运行固定 digest 时需显式指定该平台。
+Phase 1 起，完整测试需要真实 PostgreSQL 17 + pgvector 0.8.6；Phase 2 起还需要 Redis 8.2.1 和 ClamAV 1.5.4。分别通过 `TEST_DATABASE_URL`、`TEST_REDIS_URL`、`TEST_CLAMAV_HOST` 和 `TEST_CLAMAV_PORT` 指向隔离测试实例。集成测试会重建 PostgreSQL 的 `public` schema、清除自己的随机 Redis 测试队列，并向真实 clamd 发送普通字节流和标准 EICAR；只有对象元数据、流式实算 SHA256/长度和 ClamAV clean 回包同时成立时才写入 clean。禁止指向开发或生产实例。ClamAV 官方 1.5.4 镜像目前仅提供 `linux/amd64`，Apple Silicon 本地运行固定 digest 时需显式指定该平台。
 
 架构基线见 [领域词汇](CONTEXT.md)、[ADR](docs/adr/README.md)、[OSS 决策](docs/oss-decisions.md) 和 [Feature Flags](docs/feature-flags.md)。Phase 0 的新能力开关全部默认关闭，不改变现有页面和 API 行为。
 

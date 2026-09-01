@@ -300,6 +300,11 @@ export const sourceAssets = pgTable("source_assets", {
   uploadCompletedAt: timestamp("upload_completed_at", { withTimezone: true }),
   completionIdempotencyKey: text("completion_idempotency_key"),
   completionRequestHash: text("completion_request_hash"),
+  scanJobId: uuid("scan_job_id").references(() => jobs.id),
+  scannedSha256: text("scanned_sha256"),
+  scanSignature: text("scan_signature"),
+  scanErrorCode: text("scan_error_code"),
+  scannedAt: timestamp("scanned_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
 }, (table) => [
   uniqueIndex("source_assets_workspace_object_unique").on(table.workspaceId, table.objectKey),
@@ -308,6 +313,7 @@ export const sourceAssets = pgTable("source_assets", {
     .where(sql`storage_upload_id IS NOT NULL`),
   index("source_assets_version_idx").on(table.documentVersionId, table.id),
   index("source_assets_hash_idx").on(table.workspaceId, table.sha256),
+  index("source_assets_scan_job_idx").on(table.scanJobId).where(sql`scan_job_id IS NOT NULL`),
 ]);
 
 export const postgresSchema = {
