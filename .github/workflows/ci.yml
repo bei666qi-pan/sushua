@@ -116,11 +116,27 @@ jobs:
       - name: Build production image
         run: docker build --tag sushua:${{ github.sha }} .
 
+      - name: Build Document Service image
+        run: >-
+          docker build
+          --file services/document-worker/Dockerfile
+          --tag sushua-document-worker:${{ github.sha }}
+          services/document-worker
+
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           version: v0.74.0
           image-ref: sushua:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: "false"
+
+      - name: Scan Document Service image with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          image-ref: sushua-document-worker:${{ github.sha }}
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: "false"
@@ -152,10 +168,37 @@ jobs:
           syft-version: v1.51.1
           upload-artifact: "false"
 
+      - name: Generate Document Service CycloneDX SBOM
+        uses: anchore/sbom-action@006b7ce8314066bdf1765b4500370d40fa6917a3 # v0.24.2
+        with:
+          image: sushua-document-worker:${{ github.sha }}
+          format: cyclonedx-json
+          output-file: document-service.sbom.cyclonedx.json
+          syft-version: v1.51.1
+          upload-artifact: "false"
+
+      - name: Generate Document Service SPDX SBOM
+        uses: anchore/sbom-action@006b7ce8314066bdf1765b4500370d40fa6917a3 # v0.24.2
+        with:
+          image: sushua-document-worker:${{ github.sha }}
+          format: spdx-json
+          output-file: document-service.sbom.spdx.json
+          syft-version: v1.51.1
+          upload-artifact: "false"
+
       - name: Scan image with Grype
         uses: anchore/scan-action@8576240a41341d866dbd7ebc72cd9fc0ef023f54 # v7.4.2
         with:
           image: sushua:${{ github.sha }}
+          grype-version: v0.118.0
+          severity-cutoff: high
+          fail-build: "true"
+          output-format: table
+
+      - name: Scan Document Service image with Grype
+        uses: anchore/scan-action@8576240a41341d866dbd7ebc72cd9fc0ef023f54 # v7.4.2
+        with:
+          image: sushua-document-worker:${{ github.sha }}
           grype-version: v0.118.0
           severity-cutoff: high
           fail-build: "true"
@@ -168,5 +211,7 @@ jobs:
           path: |
             sbom.cyclonedx.json
             sbom.spdx.json
+            document-service.sbom.cyclonedx.json
+            document-service.sbom.spdx.json
           if-no-files-found: error
           retention-days: 30

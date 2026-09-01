@@ -36,5 +36,7 @@
 | Ruff | 0.16.5 | MIT | https://github.com/astral-sh/ruff |
 | mypy | 2.3.1 | MIT | https://github.com/python/mypy |
 | pip-audit | 2.10.1 | Apache-2.0 | https://github.com/pypa/pip-audit |
+| boto3 | 1.43.85 | Apache-2.0 | https://github.com/boto/boto3 |
+| Moto（仅测试） | 5.2.3 | Apache-2.0 | https://github.com/getmoto/moto |
 
 各软件版权归其贡献者所有，并按上游许可证提供。本文件不改变任何上游许可证条款。

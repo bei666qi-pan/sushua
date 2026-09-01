@@ -175,7 +175,7 @@ Phase 1 起，完整测试需要真实 PostgreSQL 17 + pgvector 0.8.6；Phase 2 
 | `CLAMAV_HOST` / `CLAMAV_PORT` | 内网 clamd TCP 地址 | — |
 | `DOCUMENT_SERVICE_URL` | 内网 Document Service 基地址；Worker 固定调用 `/v1/parse` | — |
 | `DOCUMENT_SERVICE_TOKEN` | Worker 到 Document Service 的服务 token，至少 32 字符 | — |
-| `DOCUMENT_STORAGE_ROOT` | 当前 Document Service 本地对象 Adapter 的隔离根目录；仅供合同/E2E，S3 Adapter 落地前不得作为生产对象拓扑 | — |
+| `DOCUMENT_STORAGE_ROOT` | Document Service 本地对象 Adapter 的隔离根目录；仅供合同/E2E | — |
 | `GUEST_SESSION_SECRET` | 游客身份 Cookie 的 HMAC 密钥，至少 32 字节 | — |
 | `BETTER_AUTH_URL` | Better Auth 对外基地址 | — |
 | `BETTER_AUTH_SECRET` | 至少 32 字符的会话签名密钥 | — |

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 from fastapi import FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
@@ -10,19 +9,16 @@ from fastapi.responses import JSONResponse
 from .contracts import ParseRequest, ParseResponse
 from .parsers import PlainTextParser
 from .service import DocumentProcessingService, DocumentServiceError, error_body
-from .storage import LocalObjectStorage
+from .storage import storage_from_environment
 
 
 def create_app() -> FastAPI:
     token = os.environ.get("DOCUMENT_SERVICE_TOKEN", "")
     if not 32 <= len(token) <= 512 or "\r" in token or "\n" in token:
         raise RuntimeError("invalid_document_service_token")
-    storage_root = os.environ.get("DOCUMENT_STORAGE_ROOT", "")
-    if not storage_root:
-        raise RuntimeError("missing_document_storage_root")
     service = DocumentProcessingService(
         token=token,
-        storage=LocalObjectStorage(Path(storage_root)),
+        storage=storage_from_environment(os.environ),
         parsers=[PlainTextParser()],
     )
     app = FastAPI(
