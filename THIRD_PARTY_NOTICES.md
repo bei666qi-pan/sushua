@@ -30,5 +30,11 @@
 | node-redis | 6.2.1 | MIT | https://github.com/redis/node-redis |
 | Redis container | 8.2.1 Alpine image digest `sha256:987c376c…1593232` | RSALv2 / SSPLv1 / AGPLv3 tri-license; bundled components vary | https://hub.docker.com/_/redis |
 | ClamAV container | 1.5.4 image index digest `sha256:f0954d6790…85f591` | GPL-2.0-only；独立网络进程 | https://github.com/Cisco-Talos/clamav |
+| FastAPI | 0.141.1 | MIT | https://github.com/fastapi/fastapi |
+| Uvicorn | 0.52.4 | BSD-3-Clause | https://github.com/encode/uvicorn |
+| uv | 0.12.8 | Apache-2.0 | https://github.com/astral-sh/uv |
+| Ruff | 0.16.5 | MIT | https://github.com/astral-sh/ruff |
+| mypy | 2.3.1 | MIT | https://github.com/python/mypy |
+| pip-audit | 2.10.1 | Apache-2.0 | https://github.com/pypa/pip-audit |
 
 各软件版权归其贡献者所有，并按上游许可证提供。本文件不改变任何上游许可证条款。
