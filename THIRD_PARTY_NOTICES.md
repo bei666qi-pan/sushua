@@ -38,5 +38,9 @@
 | pip-audit | 2.10.1 | Apache-2.0 | https://github.com/pypa/pip-audit |
 | boto3 | 1.43.85 | Apache-2.0 | https://github.com/boto/boto3 |
 | Moto（仅测试） | 5.2.3 | Apache-2.0 | https://github.com/getmoto/moto |
+| MarkItDown | 0.1.7 | MIT | https://github.com/microsoft/markitdown |
+| Magika | 0.6.3 | Apache-2.0 | https://github.com/google/magika |
+| ONNX Runtime | 1.20.1 | MIT | https://github.com/microsoft/onnxruntime |
+| Python | 3.13.15 slim image digest `sha256:881d8073…a6a6ec2` | PSF-2.0；Debian 组件按各包许可 | https://hub.docker.com/_/python |
 
 各软件版权归其贡献者所有，并按上游许可证提供。本文件不改变任何上游许可证条款。

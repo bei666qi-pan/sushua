@@ -6,6 +6,7 @@ requires-python = ">=3.11,<3.15"
 dependencies = [
   "boto3==1.43.85",
   "fastapi==0.141.1",
+  "markitdown[docx,pptx,xlsx]==0.1.7",
   "uvicorn==0.52.4",
 ]
 
@@ -15,6 +16,7 @@ dev = [
   "mypy==2.3.1",
   "moto[server]==5.2.3",
   "pip-audit==2.10.1",
+  "python-docx==1.2.0",
   "ruff==0.16.5",
 ]
 

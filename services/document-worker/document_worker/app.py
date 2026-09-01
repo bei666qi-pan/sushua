@@ -7,7 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .contracts import ParseRequest, ParseResponse
-from .parsers import PlainTextParser
+from .parsers import MarkItDownParser, PlainTextParser
 from .service import DocumentProcessingService, DocumentServiceError, error_body
 from .storage import storage_from_environment
 
@@ -19,7 +19,7 @@ def create_app() -> FastAPI:
     service = DocumentProcessingService(
         token=token,
         storage=storage_from_environment(os.environ),
-        parsers=[PlainTextParser()],
+        parsers=[PlainTextParser(), MarkItDownParser()],
     )
     app = FastAPI(
         title="SuShua Document Service",
