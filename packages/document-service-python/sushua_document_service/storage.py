@@ -37,7 +37,7 @@ class LocalObjectStorage:
     def write(self, object_key: str, content: bytes) -> None:
         target = self._resolve(object_key)
         target.parent.mkdir(parents=True, exist_ok=True)
-        with NamedTemporaryFile(dir=target.parent, prefix=".document-ir-", delete=False) as handle:
+        with NamedTemporaryFile(dir=target.parent, prefix=".document-output-", delete=False) as handle:
             temporary = Path(handle.name)
             handle.write(content)
             handle.flush()

@@ -104,6 +104,12 @@
 | Docling | 65,840 Star；2.124.0；2026-09-01 活跃 | MIT | 精确固定 2.124.0，放入独立 `sushua-docling-worker` 镜像，不与 MarkItDown/FastAPI Document Service 共用 Python 环境。当前版本高于 ODF 外部图像中等风险 GHSA-4xhp-xg4w-8ppm 的修复版 2.120.3，也高于历史 high 的修复点。真实 DOCX 已在无网络、只读根、数值非 root、drop capabilities 和 no-new-privileges 容器中转换；恶意 ODF `draw:image file:///etc/passwd` 回归未读出容器文件。此增量只建立可重现 CPU 运行镜像，尚未将其接入生产解析路由。 |
 | PyTorch CPU | PyTorch 102,703 Star；2.13.0+cpu；2026-09-01 活跃 | BSD-3-Clause | Docling 默认 PyPI 解析会在 Linux 拉取 CUDA 13、cuDNN、cuBLAS、NCCL 等数 GB GPU 依赖，与 P0 CPU 基线冲突。将 `torch==2.13.0` 与 `torchvision==0.28.0` 作为显式依赖并绑定官方 CPU wheel 索引，lock 从 125 包降到 108 包，移除全部 NVIDIA/CUDA/Triton 包；最终镜像约 413 MB。当前 PyTorch 仓库 high 公告影响 `<=2.9.1`，critical 影响 `<=2.5.1`，2.13.0 不在范围内。 |
 
+2026-09-01 Docling 内部转换服务增量复核：
+
+- 不新增产品级 OSS 选型；Docling 2.124.0、FastAPI 0.141.1、Uvicorn 0.52.4 和 boto3 1.43.85 沿用上述已复核固定版本。
+- Docling 镜像现只暴露内网 `live/ready` 和带服务 token 的 `/v1/convert`；请求只接受租户对象引用、SHA256、长度、MIME 和解析配置，拒绝任意 URL、宿主路径和多余字段。输出为限定键下的 `sushua.docling-output.v1`，尚未接入 Job Worker 的生产解析路由。
+- 两个 Python 文档服务共用仓库内 `sushua-document-service-core` 的严格对象引用与 Local/S3 Adapter，不再复制租户键、SigV4、原子写回和安全错误映射逻辑。该包是本仓库内部代码，不是新的第三方依赖。
+
 ## Review policy
 
 - npm 包全部精确固定；lockfile 由 `npm ci` 验证可复现。

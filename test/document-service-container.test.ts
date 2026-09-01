@@ -20,7 +20,7 @@ const SOURCE = Buffer.from("容器边界合同\n线粒体是有氧呼吸的主�
 async function main() {
   const build = spawnSync("docker", [
     "build", "--file", "services/document-worker/Dockerfile",
-    "--tag", IMAGE, "services/document-worker",
+    "--tag", IMAGE, ".",
   ], { cwd: process.cwd(), encoding: "utf8", maxBuffer: 20 * 1024 * 1024 });
   assert.equal(build.status, 0, `Document Service image build failed:\n${build.stdout}\n${build.stderr}`);
   const configuredUser = docker("image", "inspect", IMAGE, "--format", "{{.Config.User}}").trim();

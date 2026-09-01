@@ -4,11 +4,12 @@ ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.8@sha256:d1cbaeadc234fe19c0d93daabcf5e987
 FROM ${UV_IMAGE} AS uv
 
 FROM ${PYTHON_IMAGE} AS dependencies
-WORKDIR /build
+WORKDIR /build/services/document-worker
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_LINK_MODE=copy \
     UV_NO_PROGRESS=1
-COPY pyproject.toml uv.lock ./
+COPY services/document-worker/pyproject.toml services/document-worker/uv.lock ./
+COPY packages/document-service-python /build/packages/document-service-python
 COPY --from=uv /uv /usr/local/bin/uv
 RUN env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
       uv sync --frozen --no-dev --no-install-project \
@@ -28,7 +29,7 @@ RUN rm -rf /usr/local/lib/python3.13/site-packages/* \
     && mkdir --mode=0750 /data \
     && chown 10001:10001 /data
 COPY --from=dependencies /opt/venv /opt/venv
-COPY --chown=10001:10001 document_worker ./document_worker
+COPY --chown=10001:10001 services/document-worker/document_worker ./document_worker
 USER 10001:10001
 EXPOSE 8000
 CMD ["uvicorn", "document_worker.app:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]

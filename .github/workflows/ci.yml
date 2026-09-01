@@ -121,14 +121,14 @@ jobs:
           docker build
           --file services/document-worker/Dockerfile
           --tag sushua-document-worker:${{ github.sha }}
-          services/document-worker
+          .
 
       - name: Build isolated Docling image
         run: >-
           docker build
           --file services/docling-worker/Dockerfile
           --tag sushua-docling-worker:${{ github.sha }}
-          services/docling-worker
+          .
 
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

@@ -4,11 +4,12 @@ ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.8@sha256:d1cbaeadc234fe19c0d93daabcf5e987
 FROM ${UV_IMAGE} AS uv
 
 FROM ${PYTHON_IMAGE} AS dependencies
-WORKDIR /build
+WORKDIR /build/services/docling-worker
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_LINK_MODE=copy \
     UV_NO_PROGRESS=1
-COPY pyproject.toml uv.lock ./
+COPY services/docling-worker/pyproject.toml services/docling-worker/uv.lock ./
+COPY packages/document-service-python /build/packages/document-service-python
 COPY --from=uv /uv /usr/local/bin/uv
 RUN env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
       uv sync --frozen --no-dev --no-install-project \
@@ -19,12 +20,18 @@ ENV PATH=/opt/venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     HOME=/tmp/home \
-    HF_HOME=/tmp/huggingface
+    HF_HOME=/tmp/huggingface \
+    STORAGE_DRIVER=s3 \
+    DOCUMENT_STORAGE_ROOT=/data
 WORKDIR /app
 RUN rm -rf /usr/local/lib/python3.12/site-packages/* \
     && groupadd --system --gid 10002 sushua-docling \
     && useradd --system --uid 10002 --gid 10002 --home-dir /nonexistent \
-      --shell /usr/sbin/nologin sushua-docling
+      --shell /usr/sbin/nologin sushua-docling \
+    && mkdir --mode=0750 /data \
+    && chown 10002:10002 /data
 COPY --from=dependencies /opt/venv /opt/venv
+COPY --chown=10002:10002 services/docling-worker/docling_service ./docling_service
 USER 10002:10002
-ENTRYPOINT ["python"]
+EXPOSE 8000
+CMD ["uvicorn", "docling_service.app:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]

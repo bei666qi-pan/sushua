@@ -6,38 +6,34 @@ from pydantic import Field, field_validator
 from sushua_document_service.contracts import SourceReference, StrictModel, uuid_v7
 
 
-class ParseRequest(StrictModel):
+class ConvertRequest(StrictModel):
     schema_version: Literal[1] = Field(alias="schemaVersion")
-    job_id: str = Field(alias="jobId")
     trace_id: str = Field(alias="traceId")
     workspace_id: str = Field(alias="workspaceId")
     document_id: str = Field(alias="documentId")
     document_version_id: str = Field(alias="documentVersionId")
     source: SourceReference
     parse_config: dict[str, Any] = Field(alias="parseConfig")
-    ir_schema_version: Literal["sushua.document-ir.v1"] = Field(alias="irSchemaVersion")
-
-    @field_validator(
-        "job_id",
-        "trace_id",
-        "workspace_id",
-        "document_id",
-        "document_version_id",
+    output_schema_version: Literal["sushua.docling-output.v1"] = Field(
+        alias="outputSchemaVersion"
     )
+
+    @field_validator("trace_id", "workspace_id", "document_id", "document_version_id")
     @classmethod
     def validate_uuid_v7(cls, value: str) -> str:
         return uuid_v7(value)
 
 
-class ParseResult(StrictModel):
-    ir_object_key: str = Field(alias="irObjectKey")
-    ir_sha256: str = Field(alias="irSha256")
-    parser: str
+class ConvertResult(StrictModel):
+    conversion_object_key: str = Field(alias="conversionObjectKey")
+    conversion_sha256: str = Field(alias="conversionSha256")
+    parser: Literal["docling"]
     parser_version: str = Field(alias="parserVersion")
-    page_count: int = Field(alias="pageCount", ge=1, le=10_000)
-    ir_schema_version: Literal["sushua.document-ir.v1"] = Field(alias="irSchemaVersion")
+    output_schema_version: Literal["sushua.docling-output.v1"] = Field(
+        alias="outputSchemaVersion"
+    )
 
 
-class ParseResponse(StrictModel):
+class ConvertResponse(StrictModel):
     schema_version: Literal[1] = Field(alias="schemaVersion", default=1)
-    result: ParseResult
+    result: ConvertResult
