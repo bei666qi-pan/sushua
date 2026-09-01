@@ -29,5 +29,6 @@
 | BullMQ | 6.3.3 | MIT | https://github.com/taskforcesh/bullmq |
 | node-redis | 6.2.1 | MIT | https://github.com/redis/node-redis |
 | Redis container | 8.2.1 Alpine image digest `sha256:987c376c…1593232` | RSALv2 / SSPLv1 / AGPLv3 tri-license; bundled components vary | https://hub.docker.com/_/redis |
+| ClamAV container | 1.5.4 image index digest `sha256:f0954d6790…85f591` | GPL-2.0-only；独立网络进程 | https://github.com/Cisco-Talos/clamav |
 
 各软件版权归其贡献者所有，并按上游许可证提供。本文件不改变任何上游许可证条款。

@@ -40,9 +40,21 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      clamav:
+        image: clamav/clamav:1.5.4@sha256:f0954d679017eb6d48221e2b2be3ac5457bf278a844f39b672376f55a085f591
+        ports:
+          - 3310:3310
+        options: >-
+          --health-cmd "clamdcheck.sh"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 60
+          --health-start-period 60s
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/sushua_test
       TEST_REDIS_URL: redis://127.0.0.1:6379/0
+      TEST_CLAMAV_HOST: 127.0.0.1
+      TEST_CLAMAV_PORT: 3310
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -101,6 +113,15 @@ jobs:
         with:
           version: v0.74.0
           image-ref: sushua:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: "false"
+
+      - name: Scan ClamAV service image with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          image-ref: clamav/clamav:1.5.4@sha256:f0954d679017eb6d48221e2b2be3ac5457bf278a844f39b672376f55a085f591
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: "false"
