@@ -40,6 +40,11 @@ async function main() {
   await chmod(storageRoot, 0o777);
   const sourceObjectKey = `tenant/${IDS.workspaceId}/${IDS.documentId}/${IDS.documentVersionId}/source/${IDS.sourceAssetId}`;
   const sourcePath = path.join(storageRoot, ...sourceObjectKey.split("/"));
+  const irDirectory = path.posix.join(
+    "/data",
+    path.posix.dirname(path.posix.dirname(sourceObjectKey)),
+    "ir",
+  );
   await mkdir(path.dirname(sourcePath), { recursive: true });
   await chmod(path.join(storageRoot, "tenant"), 0o777);
   await writeFile(sourcePath, SOURCE);
@@ -101,6 +106,13 @@ async function main() {
       const logs = docker("logs", containerName);
       assert.equal(logs.includes(SOURCE.toString("utf8").trim()), false);
       assert.equal(logs.includes(TOKEN), false);
+      docker(
+        "exec", "--env", `IR_DIRECTORY=${irDirectory}`, containerName,
+        "python", "-c",
+        "import os; from pathlib import Path; root = Path(os.environ['IR_DIRECTORY']); "
+          + "[item.chmod(0o777) for item in root.rglob('*')] if root.exists() else None; "
+          + "root.chmod(0o777) if root.exists() else None",
+      );
       spawnSync("docker", ["rm", "--force", containerName], { encoding: "utf8" });
     }
     spawnSync("docker", ["image", "rm", "--force", IMAGE], { encoding: "utf8" });
