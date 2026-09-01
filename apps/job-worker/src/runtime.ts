@@ -1,4 +1,7 @@
 import { createPostgresRuntime } from "@/db/postgres/runtime";
+import { createDocumentParseHandler } from "@/features/documents/document-parse-handler";
+import { createDocumentParseModule } from "@/features/documents/document-parse";
+import { createDocumentServiceClient, type DocumentParser } from "@/features/documents/document-service-client";
 import { createBullMqJobWorker } from "@/features/jobs/bullmq-job-worker";
 import { createJobModule } from "@/features/jobs/job-module";
 import { createClamAvAdapter } from "@/features/security/clamav-adapter";
@@ -18,19 +21,25 @@ export function createJobWorkerRuntime(
     storage?: { stat(ref: ObjectRef): Promise<ObjectMetadata> };
     reader?: SourceObjectReader;
     scanner?: ClamAvAdapter;
+    parser?: DocumentParser;
   } = {},
 ) {
   const database = createPostgresRuntime({ connectionString: config.databaseUrl, maxConnections: config.concurrency + 1 });
   const jobs = createJobModule(database);
   const scans = createSourceAssetScanModule(database);
+  const parses = createDocumentParseModule(database);
   const storage = overrides.storage ?? createS3StorageAdapter(config.s3);
   const reader = overrides.reader ?? createS3SourceObjectReader(config.s3);
   const scanner = overrides.scanner ?? createClamAvAdapter(config.clamav);
+  const parser = overrides.parser ?? createDocumentServiceClient(config.documentService);
   const worker = createBullMqJobWorker({
     queueName: config.queueName,
     redisUrl: config.redisUrl,
     jobs,
-    handlers: { "file.scan": createFileScanHandler({ scans, scanner, storage, reader }) },
+    handlers: {
+      "file.scan": createFileScanHandler({ scans, scanner, storage, reader }),
+      "document.parse": createDocumentParseHandler({ parses, parser }),
+    },
     leaseSeconds: config.leaseSeconds,
     concurrency: config.concurrency,
     onError,

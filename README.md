@@ -169,6 +169,8 @@ Phase 1 起，完整测试需要真实 PostgreSQL 17 + pgvector 0.8.6；Phase 2 
 | `WORKER_CONCURRENCY` | 单 Worker 并发数，范围 1–100 | `1` |
 | `WORKER_LEASE_SECONDS` | PostgreSQL Job 租约秒数，范围 1–3600 | `300` |
 | `CLAMAV_HOST` / `CLAMAV_PORT` | 内网 clamd TCP 地址 | — |
+| `DOCUMENT_SERVICE_URL` | 内网 Document Service 基地址；Worker 固定调用 `/v1/parse` | — |
+| `DOCUMENT_SERVICE_TOKEN` | Worker 到 Document Service 的服务 token，至少 32 字符 | — |
 | `GUEST_SESSION_SECRET` | 游客身份 Cookie 的 HMAC 密钥，至少 32 字节 | — |
 | `BETTER_AUTH_URL` | Better Auth 对外基地址 | — |
 | `BETTER_AUTH_SECRET` | 至少 32 字符的会话签名密钥 | — |

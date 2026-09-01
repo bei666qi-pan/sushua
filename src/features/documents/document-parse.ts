@@ -25,6 +25,34 @@ export type DocumentParseTarget = {
   result?: DocumentParseResult;
 };
 
+const RESULT_FIELDS = new Set([
+  "irObjectKey",
+  "irSha256",
+  "parser",
+  "parserVersion",
+  "pageCount",
+  "irSchemaVersion",
+]);
+
+export function parseDocumentParseResult(value: unknown): DocumentParseResult {
+  if (typeof value !== "object" || value === null || Array.isArray(value)
+    || Object.keys(value).some((key) => !RESULT_FIELDS.has(key))
+    || Object.keys(value).length !== RESULT_FIELDS.size) {
+    throw new Error("invalid_parse_result");
+  }
+  const row = value as Record<string, unknown>;
+  const result = {
+    irObjectKey: stringField(row.irObjectKey),
+    irSha256: stringField(row.irSha256),
+    parser: stringField(row.parser),
+    parserVersion: stringField(row.parserVersion),
+    pageCount: numberField(row.pageCount),
+    irSchemaVersion: stringField(row.irSchemaVersion),
+  };
+  validateResult(result);
+  return result;
+}
+
 export function createDocumentParseModule(runtime: PostgresRuntime, options: { now?: () => Date } = {}) {
   const now = options.now ?? (() => new Date());
   return {

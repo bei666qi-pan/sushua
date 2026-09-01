@@ -40,6 +40,10 @@ async function main() {
   await admin.query(
     "GRANT EXECUTE ON FUNCTION record_source_asset_scan_v1(uuid,text,text,text,text,timestamptz) TO sushua_worker_test",
   );
+  await admin.query("GRANT EXECUTE ON FUNCTION start_document_parse_v1(uuid,timestamptz) TO sushua_worker_test");
+  await admin.query(
+    "GRANT EXECUTE ON FUNCTION record_document_parse_v1(uuid,text,text,text,text,text,integer,text,timestamptz) TO sushua_worker_test",
+  );
 
   const cleanBytes = Buffer.from("queue to clean asset");
   const eicarBytes = Buffer.from("X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*");
@@ -55,6 +59,10 @@ async function main() {
     concurrency: 1,
     leaseSeconds: 60,
     clamav: { host: clamavHost, port: clamavPort },
+    documentService: {
+      baseUrl: "http://document-worker.invalid",
+      token: "integration-only-document-token-0001",
+    },
     s3: {
       bucket: "integration-only",
       clientConfig: {
@@ -75,6 +83,18 @@ async function main() {
         const entry = entries.get(ref.key);
         if (!entry) throw new Error("not_found");
         return chunks(entry.bytes);
+      },
+    },
+    parser: {
+      async parse(target) {
+        return {
+          irObjectKey: `tenant/${target.workspaceId}/${target.documentId}/${target.documentVersionId}/ir/document-ir.json`,
+          irSha256: "b".repeat(64),
+          parser: "docling",
+          parserVersion: "2.123.1",
+          pageCount: 2,
+          irSchemaVersion: "sushua.document-ir.v1",
+        };
       },
     },
   });
@@ -99,6 +119,19 @@ async function main() {
       scan_error_code: null,
     });
     console.log("  ✓ Redis Job 被实际 Worker 消费，真实 clamd clean 后 Job/Asset 同时落入成功终态");
+
+    const parse = await seedParseJob(admin, clean);
+    await dispatcher.dispatch(parse.envelope);
+    const parseQueueJob = await queue.getJob(parse.jobId);
+    assert.ok(parseQueueJob);
+    assert.deepEqual(await parseQueueJob.waitUntilFinished(events, 10_000), { state: "succeeded" });
+    assert.deepEqual(await persistedParse(admin, clean.versionId), {
+      version_status: "ready",
+      document_status: "ready",
+      parser: "docling",
+      page_count: 2,
+    });
+    console.log("  ✓ 同一实际 Worker 消费 document.parse，IR 证据落库后 Job 才成功");
 
     await dispatcher.dispatch(infected.envelope);
     const infectedQueueJob = await queue.getJob(infected.jobId);
@@ -168,7 +201,7 @@ async function seed(admin: Pool, suffix: string, bytes: Buffer) {
     [jobId, assetId, workspaceId, `file.scan:${assetId}`, "d".repeat(64), traceId, progress, now],
   );
   return {
-    jobId, assetId, objectKey, sha256, bytes,
+    jobId, assetId, objectKey, sha256, bytes, workspaceId, documentId, versionId,
     envelope: {
       schemaVersion: 1 as const,
       id: jobId,
@@ -177,6 +210,43 @@ async function seed(admin: Pool, suffix: string, bytes: Buffer) {
       learnerId,
       resourceId: assetId,
       idempotencyKey: `file.scan:${assetId}`,
+      traceId,
+      requestedAt: now.toISOString(),
+      priority: 0,
+      budget: {},
+    },
+  };
+}
+
+async function seedParseJob(admin: Pool, source: Awaited<ReturnType<typeof seed>>) {
+  const jobId = uuidv7();
+  const traceId = uuidv7();
+  const now = new Date();
+  const progress = { phase: "queued", percent: 0, updatedAt: now.toISOString() };
+  await admin.query(
+    `INSERT INTO jobs(id,resource_id,type,workspace_id,idempotency_key,request_hash,schema_version,trace_id,priority,budget,
+      state,progress,attempt,max_attempts,run_after,requested_at,updated_at)
+     VALUES($1,$2,'document.parse',$3,$4,$5,1,$6,0,'{}','queued',$7,0,3,$8,$8,$8)`,
+    [
+      jobId,
+      source.versionId,
+      source.workspaceId,
+      `document.parse:${source.versionId}`,
+      "f".repeat(64),
+      traceId,
+      progress,
+      now,
+    ],
+  );
+  return {
+    jobId,
+    envelope: {
+      schemaVersion: 1 as const,
+      id: jobId,
+      type: "document.parse" as const,
+      workspaceId: source.workspaceId,
+      resourceId: source.versionId,
+      idempotencyKey: `document.parse:${source.versionId}`,
       traceId,
       requestedAt: now.toISOString(),
       priority: 0,
@@ -194,6 +264,15 @@ async function persisted(admin: Pool, jobId: string, assetId: string) {
     `SELECT j.state AS job_state,j.error_code AS job_error_code,
       sa.scan_status,sa.scan_error_code FROM jobs j JOIN source_assets sa ON sa.id=$2 WHERE j.id=$1`,
     [jobId, assetId],
+  );
+  return result.rows[0];
+}
+
+async function persistedParse(admin: Pool, versionId: string) {
+  const result = await admin.query(
+    `SELECT dv.status AS version_status,d.parse_status AS document_status,dv.parser,dv.page_count
+     FROM document_versions dv JOIN documents d ON d.id=dv.document_id WHERE dv.id=$1`,
+    [versionId],
   );
   return result.rows[0];
 }
