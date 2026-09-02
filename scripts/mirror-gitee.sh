@@ -29,8 +29,14 @@ if [[ ! "${retry_seconds}" =~ ^[0-9]+$ ]] || ((retry_seconds < 0 || retry_second
   exit 1
 fi
 
+if [[ ! "${GITEE_TOKEN}" =~ ^[A-Za-z0-9._~-]+$ ]]; then
+  echo "GITEE_TOKEN contains characters that cannot be placed safely in curl config." >&2
+  exit 1
+fi
+
 askpass="$(mktemp)"
-trap 'rm -f "${askpass}"' EXIT
+verify_config="$(mktemp)"
+trap 'rm -f "${askpass}" "${verify_config}"' EXIT
 chmod 700 "${askpass}"
 printf '%s\n' \
   '#!/usr/bin/env sh' \
@@ -42,12 +48,18 @@ printf '%s\n' \
 remote="https://gitee.com/${GITEE_REPOSITORY}.git"
 GIT_ASKPASS="${askpass}" GIT_TERMINAL_PROMPT=0 git push "${remote}" HEAD:master
 
+chmod 600 "${verify_config}"
+printf '%s\n' \
+  "url = \"https://gitee.com/api/v5/repos/${GITEE_REPOSITORY}/branches/master?access_token=${GITEE_TOKEN}\"" \
+  'fail-with-body' \
+  'silent' \
+  'show-error' \
+  'connect-timeout = 5' \
+  'max-time = 15' > "${verify_config}"
+
 for ((attempt = 1; attempt <= verify_attempts; attempt++)); do
-  remote_ref="$(
-    env -u GIT_ASKPASS -u GITEE_USER -u GITEE_TOKEN GIT_TERMINAL_PROMPT=0 \
-      git ls-remote "${remote}" refs/heads/master 2>/dev/null || true
-  )"
-  remote_sha="$(awk 'NR == 1 { print $1 }' <<<"${remote_ref}")"
+  remote_json="$(curl --config "${verify_config}" 2>/dev/null || true)"
+  remote_sha="$(grep -oE '"sha"[[:space:]]*:[[:space:]]*"[0-9a-f]{40}"' <<<"${remote_json}" | head -n 1 | grep -oE '[0-9a-f]{40}' || true)"
   if [[ "${remote_sha}" == "${DEPLOY_SHA}" ]]; then
     echo "Gitee master now points to ${DEPLOY_SHA}."
     exit 0
