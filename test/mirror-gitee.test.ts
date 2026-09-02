@@ -15,10 +15,18 @@ async function main() {
 set -euo pipefail
 case "\${1:-}" in
   push)
+    if [[ -z "\${GIT_ASKPASS:-}" || -z "\${GITEE_USER:-}" || -z "\${GITEE_TOKEN:-}" ]]; then
+      echo 'push credentials missing' >&2
+      exit 90
+    fi
     [[ "\${*: -1}" == "HEAD:master" ]]
     exit 0
     ;;
   ls-remote)
+    if [[ -n "\${GIT_ASKPASS:-}" || -n "\${GITEE_USER:-}" || -n "\${GITEE_TOKEN:-}" ]]; then
+      echo 'read-only verification received credentials' >&2
+      exit 91
+    fi
     attempt=0
     [[ ! -f "$ATTEMPT_FILE" ]] || attempt="$(cat "$ATTEMPT_FILE")"
     attempt=$((attempt + 1))
@@ -57,7 +65,7 @@ esac
   assert.equal(await readFile(attemptFile, "utf8"), "3");
   assert.match(result.stdout, /Gitee master now points to 0123456789abcdef0123456789abcdef01234567/);
   assert.equal(`${result.stdout}\n${result.stderr}`.includes(secret), false);
-  console.log("  ✓ push 成功后的两次 429 会受控重试，最终只接受目标 SHA 且不泄露 token");
+  console.log("  ✓ push 仅使用认证，匿名 SHA 核验在两次 429 后只接受目标 SHA 且不泄露 token");
 }
 
 main().catch((error) => {
