@@ -74,6 +74,12 @@ type UploadCompletionInput = {
   jobId: string;
   traceId: string;
 };
+type UploadAbortResult = {
+  status: "created" | "replayed";
+  workspaceId: string;
+  objectKey: string;
+  storageUploadId: string;
+};
 
 export function createDocumentModule(runtime: PostgresRuntime, options: { now?: () => Date } = {}) {
   const now = options.now ?? (() => new Date());
@@ -199,6 +205,29 @@ export function createDocumentModule(runtime: PostgresRuntime, options: { now?: 
             envelope: jobEnvelopeFromRaw(row.job),
             state: stringField(row.job.state, "invalid_upload_completion_job"),
           },
+        };
+      });
+    },
+
+    async abortUpload(actor: DocumentActor, assetId: string): Promise<UploadAbortResult> {
+      assertUuidV7(actor.learnerId, "invalid_document_learner");
+      assertUuidV7(assetId, "invalid_document_asset_id");
+      const cancelledAt = now();
+      if (!Number.isFinite(cancelledAt.getTime())) throw new Error("invalid_document_timestamp");
+      return runtime.withTenant(actor, async ({ query }) => {
+        const result = await query<{ result: Record<string, unknown> }>(
+          "SELECT abort_source_upload_v1($1,$2,$3) AS result",
+          [assetId, actor.learnerId, cancelledAt],
+        );
+        const row = result.rows[0]?.result;
+        if (!row || (row.status !== "created" && row.status !== "replayed")) {
+          throw new Error("invalid_upload_abort_result");
+        }
+        return {
+          status: row.status,
+          workspaceId: stringField(row.workspace_id, "invalid_upload_abort_result"),
+          objectKey: stringField(row.object_key, "invalid_upload_abort_result"),
+          storageUploadId: stringField(row.storage_upload_id, "invalid_upload_abort_result"),
         };
       });
     },

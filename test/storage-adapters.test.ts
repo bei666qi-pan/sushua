@@ -129,8 +129,9 @@ async function main() {
     ref: { key: "tenant/0199aa99-1111-7111-8111-111111111111/document/version/source/aborted" },
   });
   await s3.abortUpload({ ref: { key: "tenant/0199aa99-1111-7111-8111-111111111111/document/version/source/aborted" }, uploadId: abortedPlan.uploadId });
+  await s3.abortUpload({ ref: { key: "tenant/0199aa99-1111-7111-8111-111111111111/document/version/source/aborted" }, uploadId: abortedPlan.uploadId });
   assert.equal(transport.aborted, true);
-  console.log("  ✓ 取消分片上传显式调用 S3 abort");
+  console.log("  ✓ 取消分片上传显式调用 S3 abort，NoSuchUpload 重放幂等成功");
 
   const failingTransport = new FakeS3Transport(intent.sizeBytes, intent.sha256, intent.mimeType);
   failingTransport.failPresignPart = 2;
@@ -155,6 +156,7 @@ class FakeS3Transport {
   failPresignPart?: number;
   private uploadCount = 0;
   private completeCount = 0;
+  private abortCount = 0;
 
   constructor(
     private readonly sizeBytes: number,
@@ -187,6 +189,10 @@ class FakeS3Transport {
           ETag: '"s3-complete"',
         };
       case "AbortMultipartUploadCommand":
+        this.abortCount += 1;
+        if (this.abortCount > 1) {
+          throw Object.assign(new Error("test_no_such_upload"), { name: "NoSuchUpload" });
+        }
         this.aborted = true;
         return {};
       case "DeleteObjectsCommand":

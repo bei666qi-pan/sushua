@@ -1,0 +1,19 @@
+import { getCurrentIdentityServer } from "@/features/auth/current-identity-server";
+import { createUploadCancelHandler } from "@/features/uploads/api";
+import { getUploadServer } from "@/features/uploads/server";
+import { isFeatureEnabled } from "@/lib/feature-flags";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function DELETE(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  const enabled = isFeatureEnabled("async_ingestion");
+  return createUploadCancelHandler({
+    enabled,
+    identity: enabled ? getCurrentIdentityServer() : undefined,
+    uploads: enabled ? getUploadServer() : undefined,
+  })(request, (await context.params).id);
+}
