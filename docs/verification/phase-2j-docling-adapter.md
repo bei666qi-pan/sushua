@@ -78,7 +78,10 @@ form collections with `docling_unsupported_structure` until their Document IR ma
   `sha256:a261018a41513335d1c0f9d20b32e6e1620140e417fa419fab86ebc8a9512c68`
   (Document Service, UID/GID 10001) and
   `sha256:c2189c4c581c5aa4684002074f4b4df57fb21c35e86a191167ecaa3525960b0c`
-  (Docling, UID/GID 10002).
+  (Docling, UID/GID 10002). This records the Phase 2j image as tested. Phase 2k
+  later aligned Docling's numeric local-storage identity with Document Service
+  after a Linux cross-container `0600` handoff regression was reproduced; the
+  images, processes, tokens and HTTP boundary remain separate.
 - Trivy 0.74.0 reported 13 HIGH and 3 CRITICAL Debian findings in each image and 0
   HIGH/CRITICAL Python-package findings. Grype 0.118.0 reported 20 HIGH / 7 CRITICAL for Document
   Service and 38 HIGH / 7 CRITICAL for Docling; the additional 18 Docling HIGH matches are binary

@@ -118,6 +118,14 @@
 - 当前只将 Docling DOCX 的标题和正文确定性转为一页逻辑 IR，全页 bbox 和 0.85 置信度不伪造版面真值。如果输出含表格、图片、键值或表单结构，在对应 IR 映射实现前显式返回 `docling_unsupported_structure`，不发布部分 IR。
 - 该增量将 Docling 接入 Document Service 边界，但仍受现有异步摄取 Feature Flag、Job Worker 和部署配置约束；未部署、未镜像到 Gitee，不是线上能力证据。
 
+2026-09-02 Docling 原生 PDF 与离线模型增量复核：
+
+- 保留 MarkItDown 0.1.7 作为 HTML、DOCX、PPTX 和 XLSX 的轻量降级 Adapter；本增量不移除 Magika/ONNX Runtime，也不把 Alpine 或文档镜像基础层零 HIGH/CRITICAL 作为阻断目标。两张文档镜像仍完整输出 Trivy/Grype/SBOM。`docling-ibm-models` 对 macOS 限制 `transformers<5.9`，因此本地 macOS 精确固定 5.8.1，并仅对无兼容修复版的 CVE-2026-9856 作显式审计例外；例外同时在 `.trivyignore.yaml` 中限定为该锁文件并于 2026-09-09 到期。生产 Linux 精确固定未撤回的 5.16.1，`pip-audit` 仍严格阻断。已撤回的最低修复版 5.10.0 不采用。
+- 原生 PDF 只使用 Docling 版面解析，明确设置 `do_ocr=false`、`do_table_structure=false`、`enable_remote_services=false` 和 `allow_external_plugins=false`。扫描件/照片 OCR 仍属后续 PaddleOCR 路由，不将 RapidOCR 变成 P0 正确性依赖。
+- Layout Heron 模型使用 Apache-2.0，固定到不可变 revision `8f39ad3c0b4c58e9c2d2c84a38465abf757272d8`。构建阶段下载六个已列明的文件，逐文件校验大小和 SHA256；`model.safetensors` 为 171,658,996 bytes，SHA256 `00333a43451945aaf89db8ca9c0a17e75d1537c17db60fdb91aa95f4c7929e0c`。运行镜像设置 Hugging Face/Transformers offline，任务期不下载模型。
+- PDF 转换保留真实 Page 尺寸、页号、单段完整 `charspan` 和 bbox provenance，再将 BOTTOMLEFT 坐标确定性转为左上角归一化 Document IR。缺页、未知页、跨页/多段来源、不完整 charspan 和越界/非有限 bbox 均失败关闭，不伪造全页或合并框。
+- 本增量不新增线上格式承诺；未经 GitHub → Gitee → Coolify → 公开端点验证前，只能视为本地/仓库能力。
+
 ## Review policy
 
 - npm 包全部精确固定；lockfile 由 `npm ci` 验证可复现。

@@ -159,9 +159,9 @@ async function verifyDependencyFailureContracts() {
   const fakeDoclingPort = await reservePort();
   const redirectTargetPort = await reservePort();
   const documentPort = await reservePort();
-  type Scenario = "auth" | "unavailable" | "wrong_key" | "bad_sha" | "identity"
-    | "malformed" | "oversized" | "partial_status" | "redirect" | "empty"
-    | "unsupported_structure";
+  type Scenario = "auth" | "unavailable" | "models_unavailable" | "wrong_key" | "bad_sha" | "identity"
+    | "ocr_required" | "conversion_partial" | "forged_error" | "malformed" | "oversized"
+    | "partial_status" | "redirect" | "empty" | "unsupported_structure";
   let scenario: Scenario = "auth";
   let redirectTargetHits = 0;
   const redirectTarget = createServer((_request, response) => {
@@ -186,6 +186,38 @@ async function verifyDependencyFailureContracts() {
         sendJson(response, 503, {
           schemaVersion: 1,
           error: { code: "conversion_unavailable", message: "request rejected", retryable: true },
+        });
+        return;
+      }
+      if (scenario === "models_unavailable") {
+        sendJson(response, 503, {
+          schemaVersion: 1,
+          error: { code: "pdf_models_unavailable", message: "request rejected", retryable: false },
+        });
+        return;
+      }
+      if (scenario === "ocr_required") {
+        sendJson(response, 422, {
+          schemaVersion: 1,
+          error: { code: "ocr_required", message: "request rejected", retryable: false },
+        });
+        return;
+      }
+      if (scenario === "conversion_partial") {
+        sendJson(response, 422, {
+          schemaVersion: 1,
+          error: {
+            code: "document_conversion_partial",
+            message: "request rejected",
+            retryable: false,
+          },
+        });
+        return;
+      }
+      if (scenario === "forged_error") {
+        sendJson(response, 422, {
+          schemaVersion: 1,
+          error: { code: "read_another_tenant", message: "request rejected", retryable: false },
         });
         return;
       }
@@ -288,6 +320,25 @@ async function verifyDependencyFailureContracts() {
     }> = [
       { scenario: "auth", status: 502, code: "docling_service_auth_failed", retryable: false },
       { scenario: "unavailable", status: 503, code: "docling_service_unavailable", retryable: true },
+      {
+        scenario: "models_unavailable",
+        status: 503,
+        code: "pdf_models_unavailable",
+        retryable: false,
+      },
+      { scenario: "ocr_required", status: 422, code: "ocr_required", retryable: false },
+      {
+        scenario: "conversion_partial",
+        status: 422,
+        code: "document_conversion_partial",
+        retryable: false,
+      },
+      {
+        scenario: "forged_error",
+        status: 422,
+        code: "docling_request_rejected",
+        retryable: false,
+      },
       { scenario: "wrong_key", status: 502, code: "docling_protocol_error", retryable: false },
       { scenario: "bad_sha", status: 502, code: "docling_output_integrity_mismatch", retryable: false },
       { scenario: "identity", status: 502, code: "docling_protocol_error", retryable: false },

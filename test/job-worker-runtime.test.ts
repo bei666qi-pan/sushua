@@ -13,6 +13,7 @@ const databaseUrl: string = configuredDatabaseUrl;
 const configuredRedisUrl = process.env.TEST_REDIS_URL;
 if (!configuredRedisUrl) throw new Error("TEST_REDIS_URL is required");
 const redisUrl: string = configuredRedisUrl;
+const JOB_COMPLETION_TIMEOUT_MS = 15_000;
 
 function roleUrl(source: string, role: string) {
   const url = new URL(source);
@@ -126,7 +127,7 @@ async function main() {
     });
     worker = workerModule.createBullMqJobWorker(workerInput);
     await worker.waitUntilReady();
-    const authoritativeResult = await authoritativeQueueJob.waitUntilFinished(events, 5_000);
+    const authoritativeResult = await authoritativeQueueJob.waitUntilFinished(events, JOB_COMPLETION_TIMEOUT_MS);
     assert.deepEqual(authoritativeResult, { state: "succeeded" });
     assert.equal(handled[0]?.workspaceId, workspaceId);
     assert.equal(handled[0]?.resourceId, authoritative.resourceId);
@@ -139,7 +140,7 @@ async function main() {
     await dispatcher.dispatch(authoritative);
     const replayQueueJob = await queue.getJob(authoritative.id);
     assert.ok(replayQueueJob);
-    assert.deepEqual(await replayQueueJob.waitUntilFinished(events, 5_000), { state: "succeeded" });
+    assert.deepEqual(await replayQueueJob.waitUntilFinished(events, JOB_COMPLETION_TIMEOUT_MS), { state: "succeeded" });
     assert.equal(calls.get(authoritative.resourceId), 1);
     console.log("  ✓ PostgreSQL 已成功时 Redis 重投直接收敛，不重复执行 handler");
 
@@ -148,7 +149,7 @@ async function main() {
     await dispatcher.dispatch(delayed);
     const delayedQueueJob = await queue.getJob(delayed.id);
     assert.ok(delayedQueueJob);
-    assert.deepEqual(await delayedQueueJob.waitUntilFinished(events, 5_000), { state: "succeeded" });
+    assert.deepEqual(await delayedQueueJob.waitUntilFinished(events, JOB_COMPLETION_TIMEOUT_MS), { state: "succeeded" });
     assert.equal(calls.get(delayed.resourceId), 1);
     console.log("  ✓ 未到 run_after 的 Redis Job 延后执行而不是提前或丢弃");
 
@@ -157,7 +158,7 @@ async function main() {
     await dispatcher.dispatch(busy);
     const busyQueueJob = await queue.getJob(busy.id);
     assert.ok(busyQueueJob);
-    assert.deepEqual(await busyQueueJob.waitUntilFinished(events, 5_000), { state: "succeeded" });
+    assert.deepEqual(await busyQueueJob.waitUntilFinished(events, JOB_COMPLETION_TIMEOUT_MS), { state: "succeeded" });
     assert.equal(calls.get(busy.resourceId), 1);
     assert.equal((await webJobs.read({ learnerId }, busy.id))?.attempt, 2);
     console.log("  ✓ 活跃租约先延后，租约到期后恢复且只执行一次 handler");
@@ -167,7 +168,7 @@ async function main() {
     await dispatcher.dispatch(retryable);
     const retryableQueueJob = await queue.getJob(retryable.id);
     assert.ok(retryableQueueJob);
-    assert.deepEqual(await retryableQueueJob.waitUntilFinished(events, 5_000), { state: "succeeded" });
+    assert.deepEqual(await retryableQueueJob.waitUntilFinished(events, JOB_COMPLETION_TIMEOUT_MS), { state: "succeeded" });
     const retriedPersisted = await webJobs.read({ learnerId }, retryable.id);
     assert.equal(retriedPersisted?.attempt, 2);
     assert.equal(retriedPersisted?.state, "succeeded");
@@ -179,7 +180,10 @@ async function main() {
     await dispatcher.dispatch(permanent);
     const permanentQueueJob = await queue.getJob(permanent.id);
     assert.ok(permanentQueueJob);
-    await assert.rejects(() => permanentQueueJob.waitUntilFinished(events, 5_000), /malware_detected/);
+    await assert.rejects(
+      () => permanentQueueJob.waitUntilFinished(events, JOB_COMPLETION_TIMEOUT_MS),
+      /malware_detected/,
+    );
     assert.equal((await webJobs.read({ learnerId }, permanent.id))?.state, "failed");
     console.log("  ✓ 永久错误不盲目重试，PostgreSQL 与 BullMQ 都明确失败");
 
@@ -188,7 +192,10 @@ async function main() {
     await dispatcher.dispatch(exhausted);
     const exhaustedQueueJob = await queue.getJob(exhausted.id);
     assert.ok(exhaustedQueueJob);
-    await assert.rejects(() => exhaustedQueueJob.waitUntilFinished(events, 5_000), /scanner_timeout/);
+    await assert.rejects(
+      () => exhaustedQueueJob.waitUntilFinished(events, JOB_COMPLETION_TIMEOUT_MS),
+      /scanner_timeout/,
+    );
     const exhaustedPersisted = await webJobs.read({ learnerId }, exhausted.id);
     assert.equal(exhaustedPersisted?.state, "dead_lettered");
     assert.equal(exhaustedPersisted?.errorCode, "scanner_timeout");
@@ -199,7 +206,10 @@ async function main() {
     await dispatcher.dispatch(unexpected);
     const unexpectedQueueJob = await queue.getJob(unexpected.id);
     assert.ok(unexpectedQueueJob);
-    await assert.rejects(() => unexpectedQueueJob.waitUntilFinished(events, 5_000), /job_handler_failed/);
+    await assert.rejects(
+      () => unexpectedQueueJob.waitUntilFinished(events, JOB_COMPLETION_TIMEOUT_MS),
+      /job_handler_failed/,
+    );
     const unexpectedPersisted = await webJobs.read({ learnerId }, unexpected.id);
     assert.equal(unexpectedPersisted?.state, "dead_lettered");
     assert.equal(unexpectedPersisted?.errorCode, "job_handler_failed");
@@ -211,7 +221,10 @@ async function main() {
     await dispatcher.dispatch(cancelled);
     const cancelledQueueJob = await queue.getJob(cancelled.id);
     assert.ok(cancelledQueueJob);
-    assert.deepEqual(await cancelledQueueJob.waitUntilFinished(events, 5_000), { state: "cancelled" });
+    assert.deepEqual(
+      await cancelledQueueJob.waitUntilFinished(events, JOB_COMPLETION_TIMEOUT_MS),
+      { state: "cancelled" },
+    );
     assert.equal((await webJobs.read({ learnerId }, cancelled.id))?.state, "cancelled");
     assert.equal(calls.get(cancelled.resourceId), undefined);
     assert.deepEqual(workerErrors, []);

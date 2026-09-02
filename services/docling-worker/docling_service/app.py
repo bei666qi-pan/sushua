@@ -18,6 +18,7 @@ def create_app() -> FastAPI:
     service = DoclingConversionService(
         token=token,
         storage=storage_from_environment(os.environ),
+        artifacts_path=os.environ.get("DOCLING_ARTIFACTS_PATH") or None,
     )
     app = FastAPI(
         title="SuShua Docling Service",

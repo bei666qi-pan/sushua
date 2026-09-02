@@ -153,6 +153,7 @@ npm run document:typecheck  # Python strict typecheck
 npm run document:lint       # Python lint
 npm run document:audit      # Python 依赖漏洞审计
 npm run docling:sync        # 按 uv.lock 同步独立 Docling 环境
+npm run docling:test        # Docling 状态、模型与 PDF 安全策略
 npm run docling:typecheck   # Docling Service Python strict typecheck
 npm run docling:lint        # Docling Service Python lint
 npm run docling:audit       # Docling Service Python 依赖漏洞审计
@@ -181,7 +182,9 @@ Phase 1 起，完整测试需要真实 PostgreSQL 17 + pgvector 0.8.6；Phase 2 
 | `DOCUMENT_SERVICE_TOKEN` | Worker 到 Document Service 的服务 token，至少 32 字符 | — |
 | `DOCLING_SERVICE_URL` | Document Service 到独立 Docling Service 的内网基地址；未配置时保留 MarkItDown fallback | — |
 | `DOCLING_SERVICE_TOKEN` | Document Service 到 Docling Service 的独立 token，至少 32 字符 | — |
-| `DOCLING_SERVICE_TIMEOUT_SECONDS` | Docling 单次转换超时，范围 1–1800 秒 | `180` |
+| `DOCLING_SERVICE_TIMEOUT_SECONDS` | Docling 单次转换超时，范围 1–1800 秒 | `900` |
+| `DOCLING_NATIVE_PDF_ENABLED` | 仅为受控请求开启原生 PDF Adapter，请求还必须显式携带 `ocr:false`；当前上传链未写入该解析配置，因此产品环境必须保持关闭 | `false` |
+| `DOCLING_ARTIFACTS_PATH` | Docling 离线模型根目录；生产镜像已内置固定 revision 并自动设置，不应覆盖 | — |
 | `DOCUMENT_STORAGE_ROOT` | Document Service 本地对象 Adapter 的隔离根目录；仅供合同/E2E | — |
 | `GUEST_SESSION_SECRET` | 游客身份 Cookie 的 HMAC 密钥，至少 32 字节 | — |
 | `BETTER_AUTH_URL` | Better Auth 对外基地址 | — |
