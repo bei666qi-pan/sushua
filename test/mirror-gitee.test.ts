@@ -7,6 +7,7 @@ import path from "node:path";
 async function main() {
   const fixtureDir = await mkdtemp(path.join(tmpdir(), "sushua-gitee-mirror-"));
   const gitFixture = path.join(fixtureDir, "git");
+  const curlFixture = path.join(fixtureDir, "curl");
   const attemptFile = path.join(fixtureDir, "attempts");
   const releaseSha = "0123456789abcdef0123456789abcdef01234567";
   const secret = "integration-secret-must-not-leak";
@@ -23,19 +24,8 @@ case "\${1:-}" in
     exit 0
     ;;
   ls-remote)
-    if [[ -n "\${GIT_ASKPASS:-}" || -n "\${GITEE_USER:-}" || -n "\${GITEE_TOKEN:-}" ]]; then
-      echo 'read-only verification received credentials' >&2
-      exit 91
-    fi
-    attempt=0
-    [[ ! -f "$ATTEMPT_FILE" ]] || attempt="$(cat "$ATTEMPT_FILE")"
-    attempt=$((attempt + 1))
-    printf '%s' "$attempt" > "$ATTEMPT_FILE"
-    if (( attempt < 3 )); then
-      echo 'error: RPC failed; HTTP 429' >&2
-      exit 128
-    fi
-    printf '%s\trefs/heads/master\n' "$DEPLOY_SHA"
+    echo 'git protocol verification must not be used' >&2
+    exit 92
     ;;
   *)
     echo "unexpected git command: $*" >&2
@@ -44,6 +34,36 @@ case "\${1:-}" in
 esac
 `);
   await chmod(gitFixture, 0o700);
+
+  await writeFile(curlFixture, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *"$GITEE_TOKEN"* ]]; then
+  echo 'token leaked through curl arguments' >&2
+  exit 93
+fi
+config=''
+while (($#)); do
+  if [[ "$1" == '--config' ]]; then
+    config="$2"
+    break
+  fi
+  shift
+done
+[[ -n "$config" && -f "$config" ]]
+[[ "$(stat -c '%a' "$config")" == '600' ]]
+grep -Fq 'https://gitee.com/api/v5/repos/example/sushua/branches/master?access_token=' "$config"
+grep -Fq "$GITEE_TOKEN" "$config"
+attempt=0
+[[ ! -f "$ATTEMPT_FILE" ]] || attempt="$(cat "$ATTEMPT_FILE")"
+attempt=$((attempt + 1))
+printf '%s' "$attempt" > "$ATTEMPT_FILE"
+if (( attempt < 3 )); then
+  echo 'curl: (22) The requested URL returned error: 429' >&2
+  exit 22
+fi
+printf '{"commit":{"sha":"%s"}}\n' "$DEPLOY_SHA"
+`);
+  await chmod(curlFixture, 0o700);
 
   const result = spawnSync("bash", ["scripts/mirror-gitee.sh"], {
     cwd: process.cwd(),
@@ -65,7 +85,7 @@ esac
   assert.equal(await readFile(attemptFile, "utf8"), "3");
   assert.match(result.stdout, /Gitee master now points to 0123456789abcdef0123456789abcdef01234567/);
   assert.equal(`${result.stdout}\n${result.stderr}`.includes(secret), false);
-  console.log("  ✓ push 仅使用认证，匿名 SHA 核验在两次 429 后只接受目标 SHA 且不泄露 token");
+  console.log("  ✓ push 使用 AskPass，REST SHA 核验在两次 429 后只接受目标 SHA 且 token 不进入参数");
 }
 
 main().catch((error) => {
