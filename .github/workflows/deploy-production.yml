@@ -55,23 +55,7 @@ jobs:
         env:
           GITEE_USER: ${{ secrets.GITEE_USER }}
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          set -euo pipefail
-          askpass="$(mktemp)"
-          trap 'rm -f "${askpass}"' EXIT
-          chmod 700 "${askpass}"
-          printf '%s\n' \
-            '#!/usr/bin/env sh' \
-            'case "$1" in' \
-            '  *Username*) printf "%s\n" "$GITEE_USER" ;;' \
-            '  *) printf "%s\n" "$GITEE_TOKEN" ;;' \
-            'esac' > "${askpass}"
-
-          remote="https://gitee.com/${GITEE_REPOSITORY}.git"
-          GIT_ASKPASS="${askpass}" GIT_TERMINAL_PROMPT=0 git push "${remote}" HEAD:master
-          remote_sha="$(GIT_ASKPASS="${askpass}" GIT_TERMINAL_PROMPT=0 git ls-remote "${remote}" refs/heads/master | awk '{print $1}')"
-          [[ "${remote_sha}" == "${DEPLOY_SHA}" ]]
-          echo "Gitee master now points to ${DEPLOY_SHA}."
+        run: bash scripts/mirror-gitee.sh
 
       - name: Deploy with Coolify and verify production
         env:
