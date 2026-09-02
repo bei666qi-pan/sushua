@@ -110,6 +110,39 @@ export function createUploadInitHandler(input: {
   };
 }
 
+export function createUploadCancelHandler(input: {
+  enabled: boolean;
+  identity?: IdentityResolver;
+  uploads?: UploadModule;
+}) {
+  return async (request: Request, assetId: string): Promise<Response> => {
+    if (!input.enabled) return apiError(404, "not_found", "Not found", false);
+    const idempotencyKey = request.headers.get("idempotency-key")?.trim();
+    if (!idempotencyKey || idempotencyKey.length > 200) {
+      return apiError(400, "idempotency_key_required", "需要有效的 Idempotency-Key", false);
+    }
+    if (!uuidV7(assetId)) return apiError(400, "invalid_asset_id", "Upload id 无效", false);
+    if (!input.identity || !input.uploads) throw new Error("upload_cancel_dependencies_unavailable");
+    const current = await input.identity.resolve(request);
+    try {
+      const result = await input.uploads.cancel({
+        learnerId: current.learnerId,
+        ...(current.kind === "user" ? { userId: current.userId } : {}),
+      }, { assetId, idempotencyKey });
+      return withIdentityCookie(Response.json({
+        data: { asset_id: assetId, state: "aborted" },
+        meta: {
+          request_id: uuidv7(),
+          schema_version: "sushua.api.v1",
+          idempotent_replay: result.status === "replayed",
+        },
+      }), current);
+    } catch (error) {
+      return withIdentityCookie(uploadCancelError(error), current);
+    }
+  };
+}
+
 function parseBody(body: unknown, idempotencyKey: string):
   | { workspaceId: string; upload: UploadInitInput }
   | { error: string; message: string } {
@@ -200,6 +233,18 @@ function uploadCompleteError(error: unknown) {
   }
   if (code.startsWith("invalid_")) return apiError(400, code, "上传完成参数无效", false);
   return apiError(503, "upload_complete_failed", "上传完成确认失败", true);
+}
+
+function uploadCancelError(error: unknown) {
+  const code = error instanceof Error ? error.message : "upload_cancel_failed";
+  if (code === "upload_not_found" || isPgPermission(error)) {
+    return apiError(404, "upload_not_found", "Upload not found", false);
+  }
+  if (code === "upload_not_cancellable") {
+    return apiError(409, code, "上传已完成，无法取消", false);
+  }
+  if (code.startsWith("invalid_")) return apiError(400, code, "上传取消参数无效", false);
+  return apiError(503, "upload_cancel_failed", "上传取消失败，请重试", true);
 }
 
 function isPgPermission(error: unknown) {

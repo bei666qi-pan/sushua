@@ -27,6 +27,10 @@ export type UploadCompleteInput = {
   parts: CompletedPart[];
   idempotencyKey: string;
 };
+export type UploadCancelInput = {
+  assetId: string;
+  idempotencyKey: string;
+};
 
 export function createUploadModule(input: {
   documents: DocumentModule;
@@ -141,6 +145,23 @@ export function createUploadModule(input: {
       });
       await input.dispatcher.dispatch(result.job.envelope);
       return result;
+    },
+
+    async cancel(actor: { learnerId: string; userId?: string }, request: UploadCancelInput) {
+      if (!request.idempotencyKey || request.idempotencyKey !== request.idempotencyKey.trim()
+        || request.idempotencyKey.length > 200) {
+        throw new Error("invalid_document_idempotency_key");
+      }
+      const aborted = await input.documents.abortUpload(actor, request.assetId);
+      try {
+        await input.storage.abortUpload({
+          ref: { key: aborted.objectKey },
+          uploadId: aborted.storageUploadId,
+        });
+      } catch (error) {
+        if (!(error instanceof Error && error.message === "storage_upload_not_found")) throw error;
+      }
+      return aborted;
     },
   };
 }

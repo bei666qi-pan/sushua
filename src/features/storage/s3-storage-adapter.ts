@@ -114,11 +114,15 @@ export function createS3StorageAdapter(input: {
     async abortUpload(abort) {
       validateObjectRef(abort.ref);
       if (!abort.uploadId || abort.uploadId.length > 1024) throw new Error("invalid_storage_upload_id");
-      await client.send(new AbortMultipartUploadCommand({
-        Bucket: input.bucket,
-        Key: abort.ref.key,
-        UploadId: abort.uploadId,
-      }));
+      try {
+        await client.send(new AbortMultipartUploadCommand({
+          Bucket: input.bucket,
+          Key: abort.ref.key,
+          UploadId: abort.uploadId,
+        }));
+      } catch (error) {
+        if (!isNoSuchUpload(error)) throw error;
+      }
     },
 
     stat,
