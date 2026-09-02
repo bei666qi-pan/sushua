@@ -8,7 +8,7 @@ import { createPostgresRuntime } from "../src/db/postgres/runtime";
 const configuredDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!configuredDatabaseUrl) throw new Error("TEST_DATABASE_URL is required");
 const databaseUrl: string = configuredDatabaseUrl;
-const eventAt = new Date("2026-09-01T04:00:00.000Z");
+const eventAt = new Date();
 
 function roleUrl(source: string) {
   const url = new URL(source);
@@ -40,7 +40,7 @@ async function main() {
   const scans = scanModule.createSourceAssetScanModule(worker, { now: () => eventAt });
 
   console.log("SourceAsset 扫描事务");
-  await assert.rejects(() => scans.getTarget(clean.jobId), /permission denied/);
+  await assert.rejects(() => scans.getTarget(clean.jobId, 1), /permission denied/);
   await assert.rejects(
     () => worker.withTenant({ learnerId: uuidv7() }, ({ query }) => query("SELECT * FROM source_assets")),
     /permission denied|row-level security/,
@@ -54,7 +54,9 @@ async function main() {
   await admin.query(
     "GRANT EXECUTE ON FUNCTION schedule_document_parse_v1(uuid,uuid,uuid,text,timestamptz) TO sushua_worker_test",
   );
-  assert.deepEqual(await scans.getTarget(clean.jobId), {
+  await admin.query("GRANT EXECUTE ON FUNCTION assert_job_attempt_v1(uuid,integer,text) TO sushua_worker_test");
+  await assert.rejects(() => scans.getTarget(clean.jobId, 2), /stale_job_attempt/);
+  assert.deepEqual(await scans.getTarget(clean.jobId, 1), {
     jobId: clean.jobId,
     workspaceId: clean.workspaceId,
     assetId: clean.assetId,
@@ -67,13 +69,13 @@ async function main() {
   console.log("  ✓ 只凭 job_id 从 PostgreSQL 权威 Job 推导 Workspace、Asset 与对象元数据");
 
   await assert.rejects(
-    () => scans.record(clean.jobId, { status: "clean", actualSha256: "b".repeat(64) }),
+    () => scans.record(clean.jobId, 1, { status: "clean", actualSha256: "b".repeat(64) }),
     /scan_hash_mismatch/,
   );
   assert.equal((await assetState(admin, clean.assetId)).scan_status, "pending");
   console.log("  ✓ 实际对象哈希不符时数据库拒绝 clean，且三层状态均不推进");
 
-  const scheduled = await scans.record(clean.jobId, { status: "clean", actualSha256: "a".repeat(64) });
+  const scheduled = await scans.record(clean.jobId, 1, { status: "clean", actualSha256: "a".repeat(64) });
   assert.equal(scheduled.status, "clean");
   assert.equal(scheduled.replayed, false);
   assert.equal(scheduled.nextJob?.type, "document.parse");
@@ -89,17 +91,17 @@ async function main() {
     version_error_code: null,
     parse_status: "scan_pending",
   });
-  const replayed = await scans.record(clean.jobId, { status: "clean", actualSha256: "a".repeat(64) });
+  const replayed = await scans.record(clean.jobId, 1, { status: "clean", actualSha256: "a".repeat(64) });
   assert.equal(replayed.status, "clean");
   assert.equal(replayed.replayed, true);
   assert.equal(replayed.nextJob?.id, scheduled.nextJob?.id);
   await assert.rejects(
-    () => scans.record(clean.jobId, { status: "failed", errorCode: "scanner_protocol_error" }),
+    () => scans.record(clean.jobId, 1, { status: "failed", errorCode: "scanner_protocol_error" }),
     /scan_result_conflict/,
   );
   console.log("  ✓ clean 与 document.parse Job 同事务落库；重放返回同一 Job，冲突结果被拒绝");
 
-  assert.deepEqual(await scans.record(infected.jobId, {
+  assert.deepEqual(await scans.record(infected.jobId, 1, {
     status: "infected",
     actualSha256: "a".repeat(64),
     signature: "Win.Test.EICAR_HDB-1",
@@ -116,7 +118,7 @@ async function main() {
   });
   console.log("  ✓ infected 明确保存受限签名并阻断 Version/Document 后续解析");
 
-  assert.deepEqual(await scans.record(failed.jobId, {
+  assert.deepEqual(await scans.record(failed.jobId, 1, {
     status: "failed",
     errorCode: "clamav_protocol_error",
   }), { status: "failed", replayed: false });

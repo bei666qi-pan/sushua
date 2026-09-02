@@ -8,7 +8,7 @@ import { createPostgresRuntime } from "../src/db/postgres/runtime";
 const configuredDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!configuredDatabaseUrl) throw new Error("TEST_DATABASE_URL is required");
 const databaseUrl: string = configuredDatabaseUrl;
-const eventAt = new Date("2026-09-01T05:00:00.000Z");
+const eventAt = new Date();
 
 function roleUrl(source: string) {
   const url = new URL(source);
@@ -41,7 +41,7 @@ async function main() {
   const parses = parseModule.createDocumentParseModule(worker, { now: () => eventAt });
 
   console.log("Document parse 持久化状态机");
-  await assert.rejects(() => parses.start(clean.jobId), /permission denied/);
+  await assert.rejects(() => parses.start(clean.jobId, 1), /permission denied/);
   await assert.rejects(
     () => worker.withTenant({ learnerId: uuidv7() }, ({ query }) => query("SELECT * FROM document_versions")),
     /permission denied|row-level security/,
@@ -52,8 +52,12 @@ async function main() {
   await admin.query(
     "GRANT EXECUTE ON FUNCTION record_document_parse_v1(uuid,text,text,text,text,text,integer,text,timestamptz) TO sushua_worker_test",
   );
+  await admin.query("GRANT EXECUTE ON FUNCTION assert_job_attempt_v1(uuid,integer,text) TO sushua_worker_test");
 
-  assert.deepEqual(await parses.start(clean.jobId), {
+  await assert.rejects(() => parses.start(clean.jobId, 2), /stale_job_attempt/);
+  assert.equal((await versionState(admin, clean.versionId)).version_status, "scanned");
+
+  assert.deepEqual(await parses.start(clean.jobId, 1), {
     jobId: clean.jobId,
     workspaceId: clean.workspaceId,
     documentId: clean.documentId,
@@ -73,10 +77,10 @@ async function main() {
     version_error_code: null,
     document_status: "parsing",
   });
-  assert.equal((await parses.start(clean.jobId)).parseStatus, "parsing");
+  assert.equal((await parses.start(clean.jobId, 1)).parseStatus, "parsing");
   console.log("  ✓ 只凭持久 Job 推导已扫描资产，原子进入 parsing 且可幂等重放");
 
-  await assert.rejects(() => parses.start(dirty.jobId), /parse_target_not_clean/);
+  await assert.rejects(() => parses.start(dirty.jobId, 1), /parse_target_not_clean/);
   assert.deepEqual(await versionState(admin, dirty.versionId), {
     version_status: "scanned",
     parse_job_id: null,
@@ -93,7 +97,7 @@ async function main() {
     pageCount: 4,
     irSchemaVersion: "sushua.document-ir.v1" as const,
   };
-  assert.deepEqual(await parses.succeed(clean.jobId, result), { status: "ready", replayed: false });
+  assert.deepEqual(await parses.succeed(clean.jobId, 1, result), { status: "ready", replayed: false });
   assert.deepEqual(await versionState(admin, clean.versionId), {
     version_status: "ready",
     parse_job_id: clean.jobId,
@@ -109,19 +113,19 @@ async function main() {
     ir_schema_version: result.irSchemaVersion,
     parsed_at: eventAt,
   });
-  assert.deepEqual(await parses.succeed(clean.jobId, result), { status: "ready", replayed: true });
+  assert.deepEqual(await parses.succeed(clean.jobId, 1, result), { status: "ready", replayed: true });
   await assert.rejects(
-    () => parses.succeed(clean.jobId, { ...result, irSha256: "c".repeat(64) }),
+    () => parses.succeed(clean.jobId, 1, { ...result, irSha256: "c".repeat(64) }),
     /parse_result_conflict/,
   );
-  const replayed = await parses.start(clean.jobId);
+  const replayed = await parses.start(clean.jobId, 1);
   assert.equal(replayed.parseStatus, "ready");
   assert.deepEqual(replayed.result, result);
   console.log("  ✓ IR 对象、哈希、Parser 版本和页数持久化，同结果可重放而冲突结果被拒绝");
 
-  await parses.start(unsafe.jobId);
+  await parses.start(unsafe.jobId, 1);
   await assert.rejects(
-    () => parses.succeed(unsafe.jobId, {
+    () => parses.succeed(unsafe.jobId, 1, {
       ...result,
       irObjectKey: `tenant/${unsafe.workspaceId}/${unsafe.documentId}/${unsafe.versionId}/ir/../source/original.pdf`,
     }),
@@ -135,16 +139,16 @@ async function main() {
   });
   console.log("  ✓ IR 对象键中的路径逃逸在持久化前失败关闭");
 
-  await parses.start(failed.jobId);
-  assert.deepEqual(await parses.fail(failed.jobId, "document_service_unavailable"), {
+  await parses.start(failed.jobId, 1);
+  assert.deepEqual(await parses.fail(failed.jobId, 1, "document_service_unavailable"), {
     status: "failed",
     replayed: false,
   });
-  assert.deepEqual(await parses.fail(failed.jobId, "document_service_unavailable"), {
+  assert.deepEqual(await parses.fail(failed.jobId, 1, "document_service_unavailable"), {
     status: "failed",
     replayed: true,
   });
-  await assert.rejects(() => parses.fail(failed.jobId, "different_error"), /parse_result_conflict/);
+  await assert.rejects(() => parses.fail(failed.jobId, 1, "different_error"), /parse_result_conflict/);
   assert.deepEqual(await versionState(admin, failed.versionId), {
     version_status: "failed",
     parse_job_id: failed.jobId,

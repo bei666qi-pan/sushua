@@ -23,9 +23,11 @@ export type SourceAssetScanResult =
 export function createSourceAssetScanModule(runtime: PostgresRuntime, options: { now?: () => Date } = {}) {
   const now = options.now ?? (() => new Date());
   return {
-    async getTarget(jobId: string): Promise<SourceAssetScanTarget> {
+    async getTarget(jobId: string, expectedAttempt: number): Promise<SourceAssetScanTarget> {
       assertUuidV7(jobId, "invalid_scan_job_id");
+      assertAttempt(expectedAttempt);
       return runtime.withTenant({ learnerId: jobId }, async ({ query }) => {
+        await query("SELECT assert_job_attempt_v1($1,$2,'file.scan')", [jobId, expectedAttempt]);
         const result = await query<{ result: Record<string, unknown> }>(
           "SELECT read_source_asset_scan_target_v1($1) AS result",
           [jobId],
@@ -36,16 +38,18 @@ export function createSourceAssetScanModule(runtime: PostgresRuntime, options: {
       });
     },
 
-    async record(jobId: string, result: SourceAssetScanResult): Promise<{
+    async record(jobId: string, expectedAttempt: number, result: SourceAssetScanResult): Promise<{
       status: SourceAssetScanResult["status"];
       replayed: boolean;
       nextJob?: JobEnvelope;
     }> {
       assertUuidV7(jobId, "invalid_scan_job_id");
+      assertAttempt(expectedAttempt);
       validateResult(result);
       const scannedAt = now();
       if (!Number.isFinite(scannedAt.getTime())) throw new Error("invalid_scan_timestamp");
       return runtime.withTenant({ learnerId: jobId }, async ({ query }) => {
+        await query("SELECT assert_job_attempt_v1($1,$2,'file.scan')", [jobId, expectedAttempt]);
         const recorded = await query<{ result: { status: SourceAssetScanResult["status"]; replayed: boolean } }>(
           "SELECT record_source_asset_scan_v1($1,$2,$3,$4,$5,$6) AS result",
           [
@@ -128,4 +132,8 @@ function assertUuidV7(value: string, code: string) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
     throw new Error(code);
   }
+}
+
+function assertAttempt(value: number) {
+  if (!Number.isInteger(value) || value < 1) throw new Error("invalid_job_attempt");
 }

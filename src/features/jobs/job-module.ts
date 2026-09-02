@@ -42,9 +42,12 @@ export type JobClaim = {
   status: "claimed" | "busy" | "not_due" | "ignored";
   job: JobSnapshot;
 };
+export type JobHeartbeat = {
+  status: "active" | "cancel_requested" | "lease_lost";
+  job: JobSnapshot;
+};
 export type JobModule = ReturnType<typeof createJobModule>;
 type JobEvent =
-  | { type: "start" }
   | { type: "progress"; progress: Omit<JobProgress, "updatedAt">; checkpoint?: Record<string, unknown> }
   | { type: "retry"; errorCode: string; runAfter: Date }
   | { type: "succeed"; checkpoint?: Record<string, unknown> }
@@ -126,11 +129,10 @@ export function createJobModule(runtime: PostgresRuntime, options: {
       if (!Number.isInteger(leaseSeconds) || leaseSeconds < 1 || leaseSeconds > 3600) {
         throw new Error("invalid_job_lease");
       }
-      const eventAt = now();
       return runtime.withTenant({ learnerId: newId() }, async ({ query }) => {
         const result = await query<{ result: { status: JobClaim["status"]; job: RawJob } }>(
-          "SELECT claim_job_v1($1,$2,$3) AS result",
-          [jobId, leaseSeconds, eventAt],
+          "SELECT claim_job_v2($1,$2) AS result",
+          [jobId, leaseSeconds],
         );
         const row = result.rows[0]?.result;
         if (!row) throw new Error("job_claim_no_result");
@@ -141,21 +143,41 @@ export function createJobModule(runtime: PostgresRuntime, options: {
       });
     },
 
-    async apply(jobId: string, event: JobEvent): Promise<JobSnapshot> {
+    async heartbeat(jobId: string, expectedAttempt: number, leaseSeconds: number): Promise<JobHeartbeat> {
       assertUuid(jobId, "invalid_job_id");
+      assertAttempt(expectedAttempt);
+      if (!Number.isInteger(leaseSeconds) || leaseSeconds < 1 || leaseSeconds > 3600) {
+        throw new Error("invalid_job_lease");
+      }
+      return runtime.withTenant({ learnerId: newId() }, async ({ query }) => {
+        const result = await query<{ result: { status: JobHeartbeat["status"]; job: RawJob } }>(
+          "SELECT heartbeat_job_v1($1,$2,$3) AS result",
+          [jobId, expectedAttempt, leaseSeconds],
+        );
+        const row = result.rows[0]?.result;
+        if (!row || !["active", "cancel_requested", "lease_lost"].includes(row.status)) {
+          throw new Error("invalid_job_heartbeat_result");
+        }
+        return { status: row.status, job: snapshotFromRaw(row.job) };
+      });
+    },
+
+    async apply(jobId: string, expectedAttempt: number, event: JobEvent): Promise<JobSnapshot> {
+      assertUuid(jobId, "invalid_job_id");
+      assertAttempt(expectedAttempt);
       const eventAt = now();
       const normalized = normalizeEvent(event, eventAt);
       return runtime.withTenant({ learnerId: newId() }, async ({ query }) => {
         const result = await query<{ result: RawJob }>(
-          "SELECT transition_job_v1($1,$2,$3,$4,$5,$6,$7) AS result",
+          "SELECT transition_job_v2($1,$2,$3,$4,$5,$6,$7) AS result",
           [
             jobId,
+            expectedAttempt,
             event.type,
             normalized.progress ?? null,
             normalized.checkpoint ?? null,
             normalized.errorCode ?? null,
             normalized.runAfter ?? null,
-            eventAt,
           ],
         );
         const row = result.rows[0]?.result;
@@ -308,6 +330,10 @@ function assertUuid(value: string, code: string) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
     throw new Error(code);
   }
+}
+
+function assertAttempt(value: number) {
+  if (!Number.isInteger(value) || value < 1) throw new Error("invalid_job_attempt");
 }
 
 function validCode(value: string) {

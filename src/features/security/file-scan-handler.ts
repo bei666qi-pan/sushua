@@ -7,8 +7,8 @@ import { ClamAvAdapterError, type ClamAvAdapter } from "./clamav-adapter";
 import type { SourceAssetScanResult, SourceAssetScanTarget } from "./source-asset-scan";
 
 type SourceAssetScans = {
-  getTarget(jobId: string): Promise<SourceAssetScanTarget>;
-  record(jobId: string, result: SourceAssetScanResult): Promise<{
+  getTarget(jobId: string, expectedAttempt: number): Promise<SourceAssetScanTarget>;
+  record(jobId: string, expectedAttempt: number, result: SourceAssetScanResult): Promise<{
     status: string;
     replayed: boolean;
     nextJob?: import("@sushua/job-contracts").JobEnvelope;
@@ -27,12 +27,12 @@ export function createFileScanHandler(input: {
   dispatcher: { dispatch(job: import("@sushua/job-contracts").JobEnvelope): Promise<void> };
 }): JobHandler {
   return async ({ job, signal, reportProgress }) => {
-    const target = await input.scans.getTarget(job.id);
+    const target = await input.scans.getTarget(job.id, job.attempt);
     if (target.assetId !== job.resourceId || target.workspaceId !== job.workspaceId) {
       throw new JobExecutionError("scan_target_mismatch", { retryable: false });
     }
     if (target.scanStatus === "clean") {
-      await scheduleParse(await input.scans.record(job.id, {
+      await scheduleParse(await input.scans.record(job.id, job.attempt, {
         status: "clean",
         actualSha256: target.sha256,
       }));
@@ -53,7 +53,7 @@ export function createFileScanHandler(input: {
       return fail("storage_read_failed", true);
     }
     if (!metadataMatches(target, metadata)) {
-      await input.scans.record(job.id, { status: "failed", errorCode: "object_metadata_mismatch" });
+      await input.scans.record(job.id, job.attempt, { status: "failed", errorCode: "object_metadata_mismatch" });
       throw new JobExecutionError("object_metadata_mismatch", { retryable: false });
     }
 
@@ -75,7 +75,7 @@ export function createFileScanHandler(input: {
 
     const evidence = observed.evidence();
     if (evidence.sizeBytes !== target.sizeBytes || evidence.sha256 !== target.sha256) {
-      await input.scans.record(job.id, {
+      await input.scans.record(job.id, job.attempt, {
         status: "failed",
         actualSha256: evidence.sha256,
         errorCode: "object_integrity_mismatch",
@@ -83,7 +83,7 @@ export function createFileScanHandler(input: {
       throw new JobExecutionError("object_integrity_mismatch", { retryable: false });
     }
     if (scanResult.status === "infected") {
-      await input.scans.record(job.id, {
+      await input.scans.record(job.id, job.attempt, {
         status: "infected",
         actualSha256: evidence.sha256,
         signature: scanResult.signature,
@@ -91,14 +91,14 @@ export function createFileScanHandler(input: {
       throw new JobExecutionError("malware_detected", { retryable: false });
     }
 
-    const recorded = await input.scans.record(job.id, { status: "clean", actualSha256: evidence.sha256 });
+    const recorded = await input.scans.record(job.id, job.attempt, { status: "clean", actualSha256: evidence.sha256 });
     await scheduleParse(recorded);
     await reportProgress({ phase: "file_scan", percent: 100, messageCode: "scan_clean" }, cleanCheckpoint(target));
     return { checkpoint: cleanCheckpoint(target) };
 
     async function fail(code: string, retryable: boolean): Promise<never> {
       if (!retryable || job.attempt >= job.maxAttempts) {
-        await input.scans.record(job.id, { status: "failed", errorCode: code });
+        await input.scans.record(job.id, job.attempt, { status: "failed", errorCode: code });
       }
       throw new JobExecutionError(code, { retryable });
     }

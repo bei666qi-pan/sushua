@@ -11,7 +11,7 @@ import { JobExecutionError } from "../src/features/jobs/bullmq-job-worker";
 const configuredDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!configuredDatabaseUrl) throw new Error("TEST_DATABASE_URL is required");
 const databaseUrl: string = configuredDatabaseUrl;
-const eventAt = new Date("2026-09-01T04:00:00.000Z");
+const eventAt = new Date();
 
 function roleUrl(source: string) {
   const url = new URL(source);
@@ -39,6 +39,7 @@ async function main() {
   await admin.query(
     "GRANT EXECUTE ON FUNCTION record_document_parse_v1(uuid,text,text,text,text,text,integer,text,timestamptz) TO sushua_worker_test",
   );
+  await admin.query("GRANT EXECUTE ON FUNCTION assert_job_attempt_v1(uuid,integer,text) TO sushua_worker_test");
 
   const success = await seedParse(admin, "handler-success", 3);
   const retry = await seedParse(admin, "handler-retry", 3);
@@ -99,6 +100,7 @@ async function main() {
     ir_object_key: null,
     document_status: "parsing",
   });
+  await admin.query("UPDATE jobs SET attempt=max_attempts WHERE id=$1", [retry.job.id]);
   await assert.rejects(
     () => transient({
       job: { ...retry.job, attempt: retry.job.maxAttempts },
@@ -138,9 +140,9 @@ async function main() {
   assert.equal((await state(admin, rejected.versionId)).version_status, "failed");
   console.log("  ✓ 确定性服务拒绝立即失败，不盲目重试");
 
-  const replayTarget = await parses.start(replay.job.id);
+  const replayTarget = await parses.start(replay.job.id, replay.job.attempt);
   const replayResult = resultFor(replay);
-  await parses.succeed(replay.job.id, replayResult);
+  await parses.succeed(replay.job.id, replay.job.attempt, replayResult);
   let duplicateCalls = 0;
   const recovery = handlerModule.createDocumentParseHandler({
     parses,

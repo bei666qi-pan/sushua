@@ -17,7 +17,7 @@ if (!Number.isInteger(clamPort) || clamPort < 1 || clamPort > 65_535) {
   throw new Error("TEST_CLAMAV_PORT is required");
 }
 const databaseUrl: string = configuredDatabaseUrl;
-const eventAt = new Date("2026-09-01T04:00:00.000Z");
+const eventAt = new Date();
 
 function roleUrl(source: string) {
   const url = new URL(source);
@@ -48,6 +48,7 @@ async function main() {
   await admin.query(
     "GRANT EXECUTE ON FUNCTION schedule_document_parse_v1(uuid,uuid,uuid,text,timestamptz) TO sushua_worker_test",
   );
+  await admin.query("GRANT EXECUTE ON FUNCTION assert_job_attempt_v1(uuid,integer,text) TO sushua_worker_test");
 
   const cleanBytes = Buffer.from("SuShua integration test");
   const tamperedBytes = Buffer.from("tampered object bytes!!!");
@@ -109,7 +110,7 @@ async function main() {
   assert.deepEqual(progress.map((item) => item.percent), [10, 40, 100]);
   console.log("  ✓ 真实 clamd 返回 clean 且流式字节 SHA256/长度一致后才持久化 clean");
 
-  const scheduled = await scans.record(clean.job.id, { status: "clean", actualSha256: clean.sha256 });
+  const scheduled = await scans.record(clean.job.id, clean.job.attempt, { status: "clean", actualSha256: clean.sha256 });
   const dispatchUnavailable = handlerModule.createFileScanHandler({
     scans: {
       async getTarget() {
@@ -195,6 +196,7 @@ async function main() {
       && !error.message.includes("private"),
   );
   assert.equal((await assetStatus(admin, transient.assetId)).scan_status, "pending");
+  await admin.query("UPDATE jobs SET attempt=max_attempts WHERE id=$1", [transient.job.id]);
   await assert.rejects(
     () => unavailable({
       job: { ...transient.job, attempt: 2 },

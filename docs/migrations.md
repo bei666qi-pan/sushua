@@ -34,8 +34,10 @@ Worker 角色只获得后台任务所需函数，不继承 Web 角色权限。Ph
 ```sql
 GRANT USAGE ON SCHEMA public TO <worker_role>;
 GRANT EXECUTE ON FUNCTION purge_expired_guest_learners(timestamptz, integer) TO <worker_role>;
-GRANT EXECUTE ON FUNCTION transition_job_v1(uuid, text, jsonb, jsonb, text, timestamptz, timestamptz) TO <worker_role>;
-GRANT EXECUTE ON FUNCTION claim_job_v1(uuid, integer, timestamptz) TO <worker_role>;
+GRANT EXECUTE ON FUNCTION claim_job_v2(uuid, integer) TO <worker_role>;
+GRANT EXECUTE ON FUNCTION heartbeat_job_v1(uuid, integer, integer) TO <worker_role>;
+GRANT EXECUTE ON FUNCTION transition_job_v2(uuid, integer, text, jsonb, jsonb, text, timestamptz) TO <worker_role>;
+GRANT EXECUTE ON FUNCTION assert_job_attempt_v1(uuid, integer, text) TO <worker_role>;
 GRANT EXECUTE ON FUNCTION read_source_asset_scan_target_v1(uuid) TO <worker_role>;
 GRANT EXECUTE ON FUNCTION record_source_asset_scan_v1(uuid, text, text, text, text, timestamptz) TO <worker_role>;
 GRANT EXECUTE ON FUNCTION schedule_document_parse_v1(uuid, uuid, uuid, text, timestamptz) TO <worker_role>;

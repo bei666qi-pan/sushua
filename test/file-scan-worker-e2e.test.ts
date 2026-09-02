@@ -32,9 +32,11 @@ async function main() {
     END IF;
   END $$`);
   await admin.query("GRANT USAGE ON SCHEMA public TO sushua_worker_test");
-  await admin.query("GRANT EXECUTE ON FUNCTION claim_job_v1(uuid,integer,timestamptz) TO sushua_worker_test");
+  await admin.query("GRANT EXECUTE ON FUNCTION claim_job_v2(uuid,integer) TO sushua_worker_test");
+  await admin.query("GRANT EXECUTE ON FUNCTION heartbeat_job_v1(uuid,integer,integer) TO sushua_worker_test");
+  await admin.query("GRANT EXECUTE ON FUNCTION assert_job_attempt_v1(uuid,integer,text) TO sushua_worker_test");
   await admin.query(
-    "GRANT EXECUTE ON FUNCTION transition_job_v1(uuid,text,jsonb,jsonb,text,timestamptz,timestamptz) TO sushua_worker_test",
+    "GRANT EXECUTE ON FUNCTION transition_job_v2(uuid,integer,text,jsonb,jsonb,text,timestamptz) TO sushua_worker_test",
   );
   await admin.query("GRANT EXECUTE ON FUNCTION read_source_asset_scan_target_v1(uuid) TO sushua_worker_test");
   await admin.query(

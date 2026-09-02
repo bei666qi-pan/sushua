@@ -34,7 +34,7 @@ async function main() {
   await admin.query("GRANT SELECT ON jobs, workspace_members TO sushua_web_test");
   await admin.query("GRANT EXECUTE ON FUNCTION submit_job_v1(uuid, uuid, text, uuid, text, text, integer, jsonb, integer, uuid, uuid, timestamptz) TO sushua_web_test");
   await admin.query("GRANT EXECUTE ON FUNCTION request_job_cancel(uuid, text) TO sushua_web_test");
-  await admin.query("GRANT EXECUTE ON FUNCTION transition_job_v1(uuid, text, jsonb, jsonb, text, timestamptz, timestamptz) TO sushua_worker_test");
+  await admin.query("GRANT EXECUTE ON FUNCTION transition_job_v2(uuid, integer, text, jsonb, jsonb, text, timestamptz) TO sushua_worker_test");
 
   const learnerId = uuidv7();
   const workspaceId = uuidv7();
@@ -53,8 +53,8 @@ async function main() {
   const context = { workspaceId, learnerId };
   const baseTime = new Date("2026-09-01T00:00:00.000Z");
   const webJobs = jobsModule.createJobModule(webRuntime, { now: () => baseTime, newId: uuidv7 });
-  const workerAt = (iso: string) => jobsModule.createJobModule(workerRuntime, {
-    now: () => new Date(iso),
+  const workerJobs = jobsModule.createJobModule(workerRuntime, {
+    now: () => new Date("2099-01-01T00:00:00.000Z"),
     newId: uuidv7,
   });
   const submit = (key: string, maxAttempts = 3) => webJobs.submit(context, {
@@ -68,40 +68,42 @@ async function main() {
 
   console.log("Worker Job Claim");
   const delayed = await submit("scan:delayed");
-  await admin.query("UPDATE jobs SET run_after=$2 WHERE id=$1", [delayed.envelope.id, new Date("2026-09-01T00:05:00.000Z")]);
-  const unprivilegedWorker = workerAt("2026-09-01T00:00:00.000Z");
-  await assert.rejects(() => unprivilegedWorker.claim(delayed.envelope.id, 300), /permission denied/);
+  await admin.query("UPDATE jobs SET run_after=clock_timestamp() + interval '1 minute' WHERE id=$1", [delayed.envelope.id]);
+  await assert.rejects(() => workerJobs.claim(delayed.envelope.id, 300), /permission denied/);
   console.log("  ✓ Worker 未显式授权时不能领取 Job");
 
-  await admin.query("GRANT EXECUTE ON FUNCTION claim_job_v1(uuid, integer, timestamptz) TO sushua_worker_test");
-  const notDue = await workerAt("2026-09-01T00:00:00.000Z").claim(delayed.envelope.id, 300);
+  await admin.query("GRANT EXECUTE ON FUNCTION claim_job_v2(uuid, integer) TO sushua_worker_test");
+  const notDue = await workerJobs.claim(delayed.envelope.id, 300);
   assert.equal(notDue.status, "not_due");
   assert.equal(notDue.job.state, "queued");
   assert.equal(notDue.job.attempt, 0);
-  assert.equal(notDue.job.runAfter, "2026-09-01T00:05:00.000Z");
+  assert.ok(Date.parse(notDue.job.runAfter) > Date.now());
   console.log("  ✓ run_after 未到时不提前领取");
 
-  const claimed = await workerAt("2026-09-01T00:05:00.000Z").claim(delayed.envelope.id, 300);
+  await admin.query("UPDATE jobs SET run_after=clock_timestamp() - interval '1 second' WHERE id=$1", [delayed.envelope.id]);
+  const claimed = await workerJobs.claim(delayed.envelope.id, 300);
   assert.equal(claimed.status, "claimed");
   assert.equal(claimed.job.state, "running");
   assert.equal(claimed.job.attempt, 1);
-  assert.equal(claimed.job.timeoutAt, "2026-09-01T00:10:00.000Z");
+  assert.ok(claimed.job.timeoutAt && Date.parse(claimed.job.timeoutAt) > Date.now() + 299_000);
   assert.equal(claimed.job.workspaceId, workspaceId);
   assert.equal(claimed.job.resourceId, delayed.envelope.resourceId);
-  const busy = await workerAt("2026-09-01T00:06:00.000Z").claim(delayed.envelope.id, 300);
+  const busy = await workerJobs.claim(delayed.envelope.id, 300);
   assert.equal(busy.status, "busy");
   assert.equal(busy.job.attempt, 1);
   console.log("  ✓ 领取只按持久 Job ID 返回权威租户/资源，活跃租约拒绝并发执行");
 
-  const recovered = await workerAt("2026-09-01T00:10:00.000Z").claim(delayed.envelope.id, 300);
+  await admin.query("UPDATE jobs SET timeout_at=clock_timestamp() - interval '1 second' WHERE id=$1", [delayed.envelope.id]);
+  const recovered = await workerJobs.claim(delayed.envelope.id, 300);
   assert.equal(recovered.status, "claimed");
   assert.equal(recovered.job.attempt, 2);
-  assert.equal(recovered.job.timeoutAt, "2026-09-01T00:15:00.000Z");
+  assert.ok(recovered.job.timeoutAt && Date.parse(recovered.job.timeoutAt) > Date.now() + 299_000);
   console.log("  ✓ Worker 崩溃留下的过期 running Job 可被重新领取");
 
   const exhausted = await submit("scan:exhausted", 1);
-  await workerAt("2026-09-01T00:00:00.000Z").claim(exhausted.envelope.id, 60);
-  const exhaustedResult = await workerAt("2026-09-01T00:01:00.000Z").claim(exhausted.envelope.id, 60);
+  await workerJobs.claim(exhausted.envelope.id, 60);
+  await admin.query("UPDATE jobs SET timeout_at=clock_timestamp() - interval '1 second' WHERE id=$1", [exhausted.envelope.id]);
+  const exhaustedResult = await workerJobs.claim(exhausted.envelope.id, 60);
   assert.equal(exhaustedResult.status, "ignored");
   assert.equal(exhaustedResult.job.state, "dead_lettered");
   assert.equal(exhaustedResult.job.errorCode, "job_lease_exhausted");
@@ -109,23 +111,19 @@ async function main() {
 
   const cancelled = await submit("scan:cancelled");
   await webJobs.requestCancel({ learnerId }, cancelled.envelope.id, "user_requested");
-  const cancellationClock = await admin.query<{ event_at: Date }>("SELECT clock_timestamp() AS event_at");
-  const cancellationEventAt = cancellationClock.rows[0]?.event_at;
-  assert.ok(cancellationEventAt);
-  const cancelledResult = await workerAt(cancellationEventAt.toISOString()).claim(cancelled.envelope.id, 300);
+  const cancelledResult = await workerJobs.claim(cancelled.envelope.id, 300);
   assert.equal(cancelledResult.status, "ignored");
   assert.equal(cancelledResult.job.state, "cancelled");
   assert.equal(cancelledResult.job.attempt, 0);
-  assert.equal((await workerAt(new Date(cancellationEventAt.getTime() + 1_000).toISOString())
-    .claim(cancelled.envelope.id, 300)).status, "ignored");
+  assert.equal((await workerJobs.claim(cancelled.envelope.id, 300)).status, "ignored");
   console.log("  ✓ 取消请求在领取 seam 内收敛，终态重放幂等忽略");
 
   await assert.rejects(
-    () => workerAt("2026-09-01T00:00:00.000Z").claim(uuidv7(), 300),
+    () => workerJobs.claim(uuidv7(), 300),
     /job_not_found/,
   );
   await assert.rejects(
-    () => workerAt("2026-09-01T00:00:00.000Z").claim(delayed.envelope.id, 0),
+    () => workerJobs.claim(delayed.envelope.id, 0),
     /invalid_job_lease/,
   );
   console.log("  ✓ 不存在 Job 与非法租约失败关闭");
