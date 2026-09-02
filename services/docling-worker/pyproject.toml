@@ -10,6 +10,8 @@ dependencies = [
   "sushua-document-service-core",
   "torch==2.13.0",
   "torchvision==0.28.0",
+  "transformers==5.8.1; sys_platform == 'darwin'",
+  "transformers==5.16.1; sys_platform != 'darwin'",
   "uvicorn==0.52.4",
 ]
 

@@ -7,10 +7,18 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from docling.document_converter import DocumentConverter
+from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
+from docling.datamodel.backend_options import PdfBackendOptions
+from docling.datamodel.base_models import ConversionStatus, InputFormat
+from docling.datamodel.pipeline_options import (
+    LayoutObjectDetectionOptions,
+    PdfPipelineOptions,
+)
+from docling.document_converter import DocumentConverter, PdfFormatOption
 from sushua_document_service.storage import StorageAdapter
 
 from .contracts import ConvertRequest, ConvertResponse, ConvertResult
+from .model_artifacts import MODEL_REVISION, validated_artifacts_path
 
 PARSER_VERSION = "2.124.0"
 SUPPORTED_MIME_SUFFIXES = {
@@ -30,9 +38,23 @@ class DoclingServiceError(Exception):
 
 
 class DoclingConversionService:
-    def __init__(self, *, token: str, storage: StorageAdapter) -> None:
+    def __init__(
+        self,
+        *,
+        token: str,
+        storage: StorageAdapter,
+        artifacts_path: str | Path | None = None,
+    ) -> None:
         self._token = token
         self._storage = storage
+        self._artifacts_configured = artifacts_path is not None
+        self._artifacts_path = validated_artifacts_path(artifacts_path)
+        self._default_converter = DocumentConverter()
+        self._pdf_converter = (
+            _pdf_converter(self._artifacts_path)
+            if self._artifacts_path is not None
+            else None
+        )
 
     def authenticate(self, authorization: str | None) -> None:
         prefix = "Bearer "
@@ -45,13 +67,19 @@ class DoclingConversionService:
             raise DoclingServiceError("invalid_service_token", 401)
 
     def ready(self) -> bool:
-        return self._storage.ready()
+        models_ready = not self._artifacts_configured or self._artifacts_path is not None
+        return self._storage.ready() and models_ready
 
     def convert(self, request: ConvertRequest) -> ConvertResponse:
         self._validate_source_key(request)
         suffix = SUPPORTED_MIME_SUFFIXES.get(request.source.mime_type)
         if suffix is None:
             raise DoclingServiceError("unsupported_media_type", 415)
+        if request.source.mime_type == "application/pdf":
+            if request.parse_config.get("ocr") is not False:
+                raise DoclingServiceError("ocr_required", 422)
+            if self._pdf_converter is None:
+                raise DoclingServiceError("pdf_models_unavailable", 503)
         try:
             source = self._storage.read(request.source.object_key)
         except FileNotFoundError as error:
@@ -67,7 +95,20 @@ class DoclingConversionService:
             with TemporaryDirectory(prefix="sushua-docling-") as directory:
                 source_path = Path(directory) / f"source{suffix}"
                 source_path.write_bytes(source)
-                converted = DocumentConverter().convert(source_path).document.export_to_dict()
+                converter = (
+                    self._pdf_converter
+                    if request.source.mime_type == "application/pdf"
+                    else self._default_converter
+                )
+                assert converter is not None
+                conversion = converter.convert(source_path)
+                if conversion.status == ConversionStatus.PARTIAL_SUCCESS:
+                    raise DoclingServiceError("document_conversion_partial", 422)
+                if conversion.status != ConversionStatus.SUCCESS:
+                    raise DoclingServiceError("document_conversion_failed", 422)
+                converted = conversion.document.export_to_dict()
+        except DoclingServiceError:
+            raise
         except Exception as error:
             raise DoclingServiceError("document_conversion_failed", 422) from error
 
@@ -124,6 +165,40 @@ class DoclingConversionService:
             or suffix in {".", ".."}
         ):
             raise DoclingServiceError("invalid_object_key", 422)
+
+
+def _pdf_converter(artifacts_path: Path) -> DocumentConverter:
+    layout_defaults = LayoutObjectDetectionOptions()
+    layout_options = layout_defaults.model_copy(
+        update={
+            "model_spec": layout_defaults.model_spec.model_copy(
+                update={"revision": MODEL_REVISION}
+            )
+        }
+    )
+    pipeline_options = PdfPipelineOptions(
+        artifacts_path=artifacts_path,
+        do_ocr=False,
+        do_table_structure=False,
+        enable_remote_services=False,
+        allow_external_plugins=False,
+        layout_options=layout_options,
+    )
+    return DocumentConverter(
+        allowed_formats=[InputFormat.PDF],
+        format_options={
+            InputFormat.PDF: PdfFormatOption(
+                pipeline_options=pipeline_options,
+                backend=PyPdfiumDocumentBackend,
+                backend_options=PdfBackendOptions(
+                    enable_remote_fetch=False,
+                    enable_local_fetch=False,
+                    kind="pdf",
+                    enforce_same_font=True,
+                ),
+            ),
+        },
+    )
 
 
 def error_body(code: str, *, retryable: bool) -> dict[str, Any]:

@@ -1,0 +1,9 @@
+vulnerabilities:
+  - id: CVE-2026-9856
+    paths:
+      - services/docling-worker/uv.lock
+    statement: >-
+      Docling IBM Models 4.0.1 requires transformers below 5.9 on macOS.
+      The macOS-only 5.8.1 lock branch has no compatible fixed release;
+      Linux production images are pinned to and verified with 5.16.1.
+    expired_at: 2026-09-09

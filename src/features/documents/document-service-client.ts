@@ -16,6 +16,22 @@ export class DocumentServiceError extends Error {
   }
 }
 
+type PreservedServiceErrorCode =
+  | "document_conversion_failed"
+  | "document_conversion_partial"
+  | "ocr_required"
+  | "pdf_models_unavailable";
+
+const PRESERVED_SERVICE_ERRORS = new Map<
+  PreservedServiceErrorCode,
+  { status: number; retryable: boolean }
+>([
+  ["document_conversion_failed", { status: 422, retryable: false }],
+  ["document_conversion_partial", { status: 422, retryable: false }],
+  ["ocr_required", { status: 422, retryable: false }],
+  ["pdf_models_unavailable", { status: 503, retryable: false }],
+] as const);
+
 export type DocumentParser = {
   parse(target: DocumentParseTarget, signal: AbortSignal): Promise<DocumentParseResult>;
 };
@@ -59,6 +75,8 @@ export function createDocumentServiceClient(input: {
         }
 
         if (!response.ok) {
+          const preserved = await preservedServiceError(response);
+          if (preserved) throw preserved;
           if (response.status === 408 || response.status === 429 || response.status >= 500) {
             throw new DocumentServiceError("document_service_unavailable", true);
           }
@@ -96,6 +114,41 @@ export function createDocumentServiceClient(input: {
       }
     },
   };
+}
+
+async function preservedServiceError(response: Response): Promise<DocumentServiceError | undefined> {
+  const contentLength = Number(response.headers.get("content-length"));
+  if ((Number.isFinite(contentLength) && contentLength > 65_536)
+    || !response.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
+    return undefined;
+  }
+  let body: unknown;
+  try {
+    const text = await response.text();
+    if (Buffer.byteLength(text, "utf8") > 65_536) return undefined;
+    body = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(body)
+    || !exactFields(body, ["schemaVersion", "error"])
+    || body.schemaVersion !== 1
+    || !isRecord(body.error)
+    || !exactFields(body.error, ["code", "message", "retryable"])
+    || typeof body.error.code !== "string"
+    || body.error.message !== "request rejected"
+    || typeof body.error.retryable !== "boolean") {
+    return undefined;
+  }
+  const expected = PRESERVED_SERVICE_ERRORS.get(
+    body.error.code as PreservedServiceErrorCode,
+  );
+  if (!expected
+    || response.status !== expected.status
+    || body.error.retryable !== expected.retryable) {
+    return undefined;
+  }
+  return new DocumentServiceError(body.error.code, body.error.retryable);
 }
 
 function requestBody(target: DocumentParseTarget) {

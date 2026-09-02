@@ -96,7 +96,7 @@ class DoclingAdapterTests(unittest.TestCase):
             ):
                 adapter_from_environment(environment, UnusedStorage())
 
-    def test_configured_adapter_only_claims_docx_until_other_ir_mappings_exist(self) -> None:
+    def test_configured_adapter_keeps_native_pdf_disabled_by_default(self) -> None:
         adapter = adapter_from_environment(
             {
                 "DOCLING_SERVICE_URL": "http://docling.internal",
@@ -114,6 +114,227 @@ class DoclingAdapterTests(unittest.TestCase):
                 "application/vnd.openxmlformats-officedocument.presentationml.presentation"
             )
         )
+
+    def test_explicit_capability_flag_enables_native_pdf_only(self) -> None:
+        adapter = adapter_from_environment(
+            {
+                "DOCLING_SERVICE_URL": "http://docling.internal",
+                "DOCLING_SERVICE_TOKEN": "d" * 32,
+                "DOCLING_NATIVE_PDF_ENABLED": "true",
+            },
+            UnusedStorage(),
+        )
+
+        self.assertIsNotNone(adapter)
+        assert adapter is not None
+        self.assertTrue(adapter.supports(DOCX_MIME))
+        self.assertTrue(adapter.supports("application/pdf"))
+        self.assertFalse(
+            adapter.supports(
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            )
+        )
+
+    def test_converts_native_pdf_pages_and_bottom_left_provenance(self) -> None:
+        context = self._pdf_context()
+        pdf_source = context.source
+        output = self._output(
+            context=context,
+            content={
+                "schema_name": "DoclingDocument",
+                "pages": {
+                    "1": {"page_no": 1, "size": {"width": 200, "height": 400}},
+                    "2": {"page_no": 2, "size": {"width": 100, "height": 100}},
+                },
+                "texts": [
+                    {
+                        "text": "Cell membrane",
+                        "label": "section_header",
+                        "level": 1,
+                        "prov": [
+                            {
+                                "page_no": 1,
+                                "charspan": [0, 13],
+                                "bbox": {
+                                    "l": 20,
+                                    "t": 380,
+                                    "r": 180,
+                                    "b": 340,
+                                    "coord_origin": "BOTTOMLEFT",
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "text": "Mitochondria produce ATP.",
+                        "label": "text",
+                        "prov": [
+                            {
+                                "page_no": 2,
+                                "charspan": [0, 25],
+                                "bbox": {
+                                    "l": 10,
+                                    "t": 90,
+                                    "r": 90,
+                                    "b": 50,
+                                    "coord_origin": "BOTTOMLEFT",
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
+        )
+
+        parsed = convert_output(
+            output,
+            context=context,
+            source_sha256=pdf_source.sha256,
+            parser_version="2.124.0",
+        )
+
+        self.assertEqual(
+            parsed.pages,
+            [
+                {
+                    "pageNumber": 1,
+                    "width": 200,
+                    "height": 400,
+                    "blocks": [
+                        {
+                            "blockId": "block-1",
+                            "blockType": "heading",
+                            "text": "Cell membrane",
+                            "markdown": "# Cell membrane",
+                            "bbox": [0.1, 0.05, 0.8, 0.1],
+                            "readingOrder": 0,
+                            "confidence": 0.85,
+                            "sourceHash": (
+                                "3ad5f6cbfe814cb58894c573adab7ab519125315b8e5b9d0a2288970a794f453"
+                            ),
+                            "headingLevel": 1,
+                        }
+                    ],
+                },
+                {
+                    "pageNumber": 2,
+                    "width": 100,
+                    "height": 100,
+                    "blocks": [
+                        {
+                            "blockId": "block-2",
+                            "blockType": "text",
+                            "text": "Mitochondria produce ATP.",
+                            "markdown": "Mitochondria produce ATP.",
+                            "bbox": [0.1, 0.1, 0.8, 0.4],
+                            "readingOrder": 0,
+                            "confidence": 0.85,
+                            "sourceHash": (
+                                "469b43f60da821840fdd0bb51106a91b898fe0662914e77299d0c5b5bb064399"
+                            ),
+                        }
+                    ],
+                },
+            ],
+        )
+
+    def test_pdf_text_requires_provenance(self) -> None:
+        with self.assertRaisesRegex(DoclingAdapterError, "docling_invalid_provenance"):
+            self._convert_pdf_text(provenance=[])
+
+    def test_pdf_provenance_must_reference_a_declared_page(self) -> None:
+        with self.assertRaisesRegex(DoclingAdapterError, "docling_invalid_provenance"):
+            self._convert_pdf_text(
+                provenance=[self._provenance(page_number=2, left=10, top=90, right=90, bottom=50)]
+            )
+
+    def test_pdf_provenance_cannot_span_pages(self) -> None:
+        with self.assertRaisesRegex(DoclingAdapterError, "docling_invalid_provenance"):
+            self._convert_pdf_text(
+                provenance=[
+                    self._provenance(page_number=1, left=10, top=90, right=40, bottom=70),
+                    self._provenance(page_number=2, left=10, top=90, right=40, bottom=70),
+                ],
+                page_count=2,
+            )
+
+    def test_pdf_provenance_bbox_must_stay_inside_the_page(self) -> None:
+        with self.assertRaisesRegex(DoclingAdapterError, "docling_invalid_provenance"):
+            self._convert_pdf_text(
+                provenance=[
+                    self._provenance(page_number=1, left=-1, top=90, right=90, bottom=50)
+                ]
+            )
+
+    def test_pdf_provenance_cannot_merge_disjoint_same_page_regions(self) -> None:
+        with self.assertRaisesRegex(DoclingAdapterError, "docling_invalid_provenance"):
+            self._convert_pdf_text(
+                provenance=[
+                    self._provenance(page_number=1, left=10, top=90, right=40, bottom=70),
+                    self._provenance(page_number=1, left=35, top=75, right=90, bottom=50),
+                ]
+            )
+
+    def test_pdf_provenance_must_cover_the_complete_text(self) -> None:
+        provenance = self._provenance(
+            page_number=1,
+            left=10,
+            top=90,
+            right=90,
+            bottom=50,
+        )
+        provenance["charspan"] = [0, 7]
+
+        with self.assertRaisesRegex(DoclingAdapterError, "docling_invalid_provenance"):
+            self._convert_pdf_text(provenance=[provenance])
+
+    def test_native_pdf_does_not_publish_a_page_without_locatable_text(self) -> None:
+        with self.assertRaisesRegex(DoclingAdapterError, "ocr_required"):
+            self._convert_pdf_text(
+                provenance=[
+                    self._provenance(
+                        page_number=1,
+                        left=10,
+                        top=90,
+                        right=90,
+                        bottom=50,
+                    )
+                ],
+                page_count=2,
+            )
+
+    def test_unmapped_pdf_label_is_preserved_as_unknown_instead_of_text(self) -> None:
+        parsed = self._convert_pdf_text(
+            provenance=[
+                self._provenance(
+                    page_number=1,
+                    left=10,
+                    top=90,
+                    right=90,
+                    bottom=50,
+                )
+            ],
+            label="formula",
+        )
+
+        self.assertEqual(parsed.pages[0]["blocks"][0]["blockType"], "unknown")
+        self.assertEqual(parsed.pages[0]["blocks"][0]["text"], "Visible paragraph")
+
+    def test_section_heading_level_cannot_be_silently_clamped(self) -> None:
+        with self.assertRaisesRegex(DoclingAdapterError, "docling_unsupported_structure"):
+            self._convert_pdf_text(
+                provenance=[
+                    self._provenance(
+                        page_number=1,
+                        left=10,
+                        top=90,
+                        right=90,
+                        bottom=50,
+                    )
+                ],
+                label="section_header",
+                level=9,
+            )
 
     def test_rejects_mismatched_conversion_identity(self) -> None:
         output = json.loads(self._output(content=self._text_content()))
@@ -148,22 +369,97 @@ class DoclingAdapterTests(unittest.TestCase):
             "texts": [{"text": "Visible paragraph", "label": "text"}],
         }
 
-    def _output(self, *, content: dict[str, object]) -> bytes:
+    def _output(
+        self,
+        *,
+        content: dict[str, object],
+        context: ParserContext | None = None,
+    ) -> bytes:
+        actual_context = context or self.context
         return json.dumps(
             {
                 "schemaVersion": "sushua.docling-output.v1",
                 "document": {
-                    "id": self.context.document_id,
-                    "workspaceId": self.context.workspace_id,
-                    "documentVersionId": self.context.document_version_id,
-                    "source": self.source.model_dump(by_alias=True),
-                    "parseConfig": self.context.parse_config,
+                    "id": actual_context.document_id,
+                    "workspaceId": actual_context.workspace_id,
+                    "documentVersionId": actual_context.document_version_id,
+                    "source": actual_context.source.model_dump(by_alias=True),
+                    "parseConfig": actual_context.parse_config,
                     "parser": {"name": "docling", "version": "2.124.0"},
                     "content": content,
                 },
             },
             separators=(",", ":"),
         ).encode()
+
+    def _pdf_context(self) -> ParserContext:
+        pdf_source = self.source.model_copy(update={"mime_type": "application/pdf"})
+        return ParserContext(
+            trace_id=self.context.trace_id,
+            workspace_id=self.context.workspace_id,
+            document_id=self.context.document_id,
+            document_version_id=self.context.document_version_id,
+            source=pdf_source,
+            parse_config=self.context.parse_config,
+        )
+
+    def _convert_pdf_text(
+        self,
+        *,
+        provenance: list[dict[str, object]],
+        page_count: int = 1,
+        label: str = "text",
+        level: int | None = None,
+    ):
+        context = self._pdf_context()
+        pages = {
+            str(page_number): {
+                "page_no": page_number,
+                "size": {"width": 100, "height": 100},
+            }
+            for page_number in range(1, page_count + 1)
+        }
+        return convert_output(
+            self._output(
+                context=context,
+                content={
+                    "schema_name": "DoclingDocument",
+                    "pages": pages,
+                    "texts": [
+                        {
+                            "text": "Visible paragraph",
+                            "label": label,
+                            **({"level": level} if level is not None else {}),
+                            "prov": provenance,
+                        }
+                    ],
+                },
+            ),
+            context=context,
+            source_sha256=context.source.sha256,
+            parser_version="2.124.0",
+        )
+
+    @staticmethod
+    def _provenance(
+        *,
+        page_number: int,
+        left: int,
+        top: int,
+        right: int,
+        bottom: int,
+    ) -> dict[str, object]:
+        return {
+            "page_no": page_number,
+            "charspan": [0, 17],
+            "bbox": {
+                "l": left,
+                "t": top,
+                "r": right,
+                "b": bottom,
+                "coord_origin": "BOTTOMLEFT",
+            },
+        }
 
 
 class UnusedStorage:

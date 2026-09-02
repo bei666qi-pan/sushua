@@ -94,6 +94,62 @@ async function main() {
     console.log("  ✓ 429/5xx 只返回安全可重试错误，不泄露响应正文或 token");
 
     responder = (_request, response) => {
+      response.writeHead(503, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        schemaVersion: 1,
+        error: {
+          code: "pdf_models_unavailable",
+          message: "request rejected",
+          retryable: false,
+        },
+      }));
+    };
+    await assert.rejects(
+      () => client.parse(target, new AbortController().signal),
+      (error: unknown) => error instanceof clientModule.DocumentServiceError
+        && error.code === "pdf_models_unavailable"
+        && !error.retryable,
+    );
+
+    responder = (_request, response) => {
+      response.writeHead(422, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        schemaVersion: 1,
+        error: {
+          code: "document_conversion_partial",
+          message: "request rejected",
+          retryable: false,
+        },
+      }));
+    };
+    await assert.rejects(
+      () => client.parse(target, new AbortController().signal),
+      (error: unknown) => error instanceof clientModule.DocumentServiceError
+        && error.code === "document_conversion_partial"
+        && !error.retryable,
+    );
+    console.log("  ✓ 严格白名单内的确定性错误保留原始重试语义");
+
+    responder = (_request, response) => {
+      response.writeHead(422, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        schemaVersion: 1,
+        error: {
+          code: "read_another_tenant",
+          message: "request rejected",
+          retryable: false,
+        },
+      }));
+    };
+    await assert.rejects(
+      () => client.parse(target, new AbortController().signal),
+      (error: unknown) => error instanceof clientModule.DocumentServiceError
+        && error.code === "document_request_rejected"
+        && !error.retryable,
+    );
+    console.log("  ✓ 未知下游错误码不进入 Job 状态或重试决策");
+
+    responder = (_request, response) => {
       response.writeHead(400, { "content-type": "application/json" });
       response.end("rejected private detail");
     };

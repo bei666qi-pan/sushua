@@ -301,7 +301,7 @@ async function waitUntilReady(
   service: ReturnType<typeof startService>,
   output: () => string,
 ) {
-  const deadline = Date.now() + 15_000;
+  const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     if (service.exitCode !== null) {
       assert.fail(`Document Service exited before ready (${service.exitCode}): ${output()}`);

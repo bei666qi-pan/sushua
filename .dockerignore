@@ -2,6 +2,12 @@
 .github
 .next
 node_modules
+**/.venv
+**/__pycache__
+**/.mypy_cache
+**/.pytest_cache
+**/.ruff_cache
+**/*.pyc
 data
 *.db
 *.db-journal
