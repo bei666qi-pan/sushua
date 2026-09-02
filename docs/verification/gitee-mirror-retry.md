@@ -10,8 +10,11 @@
 
 ## 修复合同
 
+Deploy Production `33645694577` 进一步证明 push 成功，但携带 AskPass 的 5 次核验仍全部失败；其中第 4 次请求卡住约 5 分钟。同期匿名 `ls-remote` 立即返回目标 SHA `827146ae597ef70c97d0d14209d7e97f0bf65d3b`，将根因进一步收敛到读核验不应重用写入凭据。
+
 - `.github/workflows/deploy-production.yml` 调用独立的 `scripts/mirror-gitee.sh`。
 - push 仍只执行一次；之后仅对只读 SHA 核验做最多 5 次、每次 5 秒的有界重试。
+- push 使用 AskPass 认证；公开分支的只读 SHA 核验显式移除 AskPass、用户名和 token，避免重复撞上 Gitee 认证限流。
 - 只有 Gitee `master` 精确等于 `DEPLOY_SHA` 才返回成功；空响应、错误 SHA、认证失败或持续限流最终都失败关闭。
 - remote URL 不嵌入凭据；临时 AskPass 文件以 `0700` 创建并在退出时删除；日志不输出 token。
 

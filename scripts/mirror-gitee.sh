@@ -44,7 +44,7 @@ GIT_ASKPASS="${askpass}" GIT_TERMINAL_PROMPT=0 git push "${remote}" HEAD:master
 
 for ((attempt = 1; attempt <= verify_attempts; attempt++)); do
   remote_ref="$(
-    GIT_ASKPASS="${askpass}" GIT_TERMINAL_PROMPT=0 \
+    env -u GIT_ASKPASS -u GITEE_USER -u GITEE_TOKEN GIT_TERMINAL_PROMPT=0 \
       git ls-remote "${remote}" refs/heads/master 2>/dev/null || true
   )"
   remote_sha="$(awk 'NR == 1 { print $1 }' <<<"${remote_ref}")"
