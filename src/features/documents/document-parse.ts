@@ -56,10 +56,12 @@ export function parseDocumentParseResult(value: unknown): DocumentParseResult {
 export function createDocumentParseModule(runtime: PostgresRuntime, options: { now?: () => Date } = {}) {
   const now = options.now ?? (() => new Date());
   return {
-    async start(jobId: string): Promise<DocumentParseTarget> {
+    async start(jobId: string, expectedAttempt: number): Promise<DocumentParseTarget> {
       assertUuidV7(jobId, "invalid_parse_job_id");
+      assertAttempt(expectedAttempt);
       const startedAt = validNow(now(), "invalid_parse_timestamp");
       return runtime.withTenant({ learnerId: jobId }, async ({ query }) => {
+        await query("SELECT assert_job_attempt_v1($1,$2,'document.parse')", [jobId, expectedAttempt]);
         const result = await query<{ result: Record<string, unknown> }>(
           "SELECT start_document_parse_v1($1,$2) AS result",
           [jobId, startedAt],
@@ -70,10 +72,11 @@ export function createDocumentParseModule(runtime: PostgresRuntime, options: { n
       });
     },
 
-    async succeed(jobId: string, result: DocumentParseResult) {
+    async succeed(jobId: string, expectedAttempt: number, result: DocumentParseResult) {
       assertUuidV7(jobId, "invalid_parse_job_id");
+      assertAttempt(expectedAttempt);
       validateResult(result);
-      return await record(runtime, now, jobId, {
+      return await record(runtime, now, jobId, expectedAttempt, {
         status: "ready",
         irObjectKey: result.irObjectKey,
         irSha256: result.irSha256,
@@ -83,10 +86,11 @@ export function createDocumentParseModule(runtime: PostgresRuntime, options: { n
       });
     },
 
-    async fail(jobId: string, errorCode: string) {
+    async fail(jobId: string, expectedAttempt: number, errorCode: string) {
       assertUuidV7(jobId, "invalid_parse_job_id");
+      assertAttempt(expectedAttempt);
       if (!validCode(errorCode)) throw new Error("invalid_parse_error_code");
-      return await record(runtime, now, jobId, { status: "failed", errorCode });
+      return await record(runtime, now, jobId, expectedAttempt, { status: "failed", errorCode });
     },
   };
 }
@@ -95,11 +99,13 @@ async function record(
   runtime: PostgresRuntime,
   now: () => Date,
   jobId: string,
+  expectedAttempt: number,
   value: ({ status: "ready" } & Omit<DocumentParseResult, "irSchemaVersion">)
     | { status: "failed"; errorCode: string },
 ): Promise<{ status: "ready" | "failed"; replayed: boolean }> {
   const completedAt = validNow(now(), "invalid_parse_timestamp");
   return runtime.withTenant({ learnerId: jobId }, async ({ query }) => {
+    await query("SELECT assert_job_attempt_v1($1,$2,'document.parse')", [jobId, expectedAttempt]);
     const result = await query<{ result: { status: "ready" | "failed"; replayed: boolean } }>(
       "SELECT record_document_parse_v1($1,$2,$3,$4,$5,$6,$7,$8,$9) AS result",
       value.status === "ready"
@@ -222,6 +228,10 @@ function assertUuidV7(value: string, code: string) {
   if (!isUuidV7(value)) {
     throw new Error(code);
   }
+}
+
+function assertAttempt(value: number) {
+  if (!Number.isInteger(value) || value < 1) throw new Error("invalid_job_attempt");
 }
 
 function isUuidV7(value: string) {

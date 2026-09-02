@@ -113,17 +113,24 @@ async function processJob(input: {
 
   const handler = input.handlers[claim.job.type];
   if (!handler) {
-    await input.jobs.apply(claim.job.id, { type: "fail", errorCode: "unsupported_job_type" });
+    await input.jobs.apply(claim.job.id, claim.job.attempt, { type: "fail", errorCode: "unsupported_job_type" });
     throw new UnrecoverableError("unsupported_job_type");
   }
 
+  const lease = createLeaseMonitor({
+    jobs: input.jobs,
+    job: claim.job,
+    leaseSeconds: input.leaseSeconds,
+    parentSignal: input.signal,
+  });
   let result: { checkpoint?: Record<string, unknown> };
+  let handlerError: unknown;
   try {
     result = await handler({
       job: claim.job,
-      signal: input.signal,
+      signal: lease.signal,
       reportProgress: async (progress, checkpoint) => {
-        await input.jobs.apply(claim.job.id, {
+        await input.jobs.apply(claim.job.id, claim.job.attempt, {
           type: "progress",
           progress,
           ...(checkpoint ? { checkpoint } : {}),
@@ -131,27 +138,95 @@ async function processJob(input: {
       },
     });
   } catch (error) {
+    handlerError = error;
+    result = {};
+  }
+
+  await lease.stop();
+  const control = lease.outcome === "active"
+    ? await input.jobs.heartbeat(claim.job.id, claim.job.attempt, input.leaseSeconds)
+    : { status: lease.outcome } as const;
+  if (control.status === "cancel_requested") {
+    const cancelled = await input.jobs.apply(claim.job.id, claim.job.attempt, { type: "cancel" });
+    return { state: cancelled.state };
+  }
+  if (control.status === "lease_lost") return { state: "lease_lost" };
+  if (control.status === "heartbeat_failed" || control.status === "worker_stopping") {
+    throw new Error(control.status);
+  }
+
+  if (handlerError !== undefined) {
+    const error = handlerError;
     const executionError = error instanceof JobExecutionError
       ? error
       : new JobExecutionError("job_handler_failed", { retryable: true });
     if (!executionError.retryable) {
-      await input.jobs.apply(claim.job.id, { type: "fail", errorCode: executionError.code });
+      await input.jobs.apply(claim.job.id, claim.job.attempt, { type: "fail", errorCode: executionError.code });
       throw new UnrecoverableError(executionError.code);
     }
     if (claim.job.attempt >= claim.job.maxAttempts) {
-      await input.jobs.apply(claim.job.id, { type: "dead_letter", errorCode: executionError.code });
+      await input.jobs.apply(claim.job.id, claim.job.attempt, { type: "dead_letter", errorCode: executionError.code });
       throw new UnrecoverableError(executionError.code);
     }
     const retryAt = new Date(input.now().getTime() + executionError.retryAfterMs);
-    await input.jobs.apply(claim.job.id, { type: "retry", errorCode: executionError.code, runAfter: retryAt });
+    await input.jobs.apply(claim.job.id, claim.job.attempt, { type: "retry", errorCode: executionError.code, runAfter: retryAt });
     return moveToDelayed(input.queueJob, retryAt.getTime(), input.token);
   }
 
-  const succeeded = await input.jobs.apply(claim.job.id, {
+  const succeeded = await input.jobs.apply(claim.job.id, claim.job.attempt, {
     type: "succeed",
     ...(result.checkpoint ? { checkpoint: result.checkpoint } : {}),
   });
   return { state: succeeded.state };
+}
+
+type LeaseMonitorOutcome = "active" | "cancel_requested" | "lease_lost" | "heartbeat_failed" | "worker_stopping";
+
+function createLeaseMonitor(input: {
+  jobs: JobModule;
+  job: JobSnapshot;
+  leaseSeconds: number;
+  parentSignal: AbortSignal;
+}) {
+  const controller = new AbortController();
+  const intervalMs = Math.max(100, Math.min(5_000, Math.floor(input.leaseSeconds * 1_000 / 3)));
+  let outcome: LeaseMonitorOutcome = "active";
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let inFlight: Promise<void> = Promise.resolve();
+
+  const abort = (next: LeaseMonitorOutcome) => {
+    if (outcome !== "active") return;
+    outcome = next;
+    controller.abort(new Error(`job_${next}`));
+  };
+  const onParentAbort = () => abort("worker_stopping");
+  if (input.parentSignal.aborted) onParentAbort();
+  else input.parentSignal.addEventListener("abort", onParentAbort, { once: true });
+
+  const schedule = () => {
+    if (stopped || outcome !== "active") return;
+    timer = setTimeout(() => {
+      inFlight = input.jobs.heartbeat(input.job.id, input.job.attempt, input.leaseSeconds)
+        .then((heartbeat) => {
+          if (heartbeat.status !== "active") abort(heartbeat.status);
+        })
+        .catch(() => abort("heartbeat_failed"))
+        .finally(schedule);
+    }, intervalMs);
+  };
+  schedule();
+
+  return {
+    signal: controller.signal,
+    get outcome() { return outcome; },
+    async stop() {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      input.parentSignal.removeEventListener("abort", onParentAbort);
+      await inFlight;
+    },
+  };
 }
 
 async function moveToDelayed(

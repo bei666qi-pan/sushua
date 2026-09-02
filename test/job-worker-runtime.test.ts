@@ -41,8 +41,9 @@ async function main() {
   await admin.query("GRANT SELECT ON jobs, workspace_members TO sushua_web_test");
   await admin.query("GRANT EXECUTE ON FUNCTION submit_job_v1(uuid, uuid, text, uuid, text, text, integer, jsonb, integer, uuid, uuid, timestamptz) TO sushua_web_test");
   await admin.query("GRANT EXECUTE ON FUNCTION request_job_cancel(uuid, text) TO sushua_web_test");
-  await admin.query("GRANT EXECUTE ON FUNCTION claim_job_v1(uuid, integer, timestamptz) TO sushua_worker_test");
-  await admin.query("GRANT EXECUTE ON FUNCTION transition_job_v1(uuid, text, jsonb, jsonb, text, timestamptz, timestamptz) TO sushua_worker_test");
+  await admin.query("GRANT EXECUTE ON FUNCTION claim_job_v2(uuid, integer) TO sushua_worker_test");
+  await admin.query("GRANT EXECUTE ON FUNCTION heartbeat_job_v1(uuid, integer, integer) TO sushua_worker_test");
+  await admin.query("GRANT EXECUTE ON FUNCTION transition_job_v2(uuid, integer, text, jsonb, jsonb, text, timestamptz) TO sushua_worker_test");
 
   const learnerId = uuidv7();
   const workspaceId = uuidv7();
@@ -79,9 +80,13 @@ async function main() {
   const permanentResource = uuidv7();
   const exhaustedResource = uuidv7();
   const unexpectedResource = uuidv7();
+  const activeCancelResource = uuidv7();
   const calls = new Map<string, number>();
   const handled: JobSnapshot[] = [];
   const workerErrors: Error[] = [];
+  let resolveActiveStart!: () => void;
+  const activeStarted = new Promise<void>((resolve) => { resolveActiveStart = resolve; });
+  let activeSignalAborted = false;
   const workerInput = {
     queueName,
     redisUrl,
@@ -89,13 +94,23 @@ async function main() {
     leaseSeconds: 1,
     onError: (error: Error) => workerErrors.push(error),
     handlers: {
-      "file.scan": async ({ job, reportProgress }: {
+      "file.scan": async ({ job, reportProgress, signal }: {
         job: JobSnapshot;
+        signal: AbortSignal;
         reportProgress(progress: { phase: string; percent: number }, checkpoint?: Record<string, unknown>): Promise<void>;
       }) => {
         handled.push(job);
         calls.set(job.resourceId, (calls.get(job.resourceId) ?? 0) + 1);
         await reportProgress({ phase: "file_scan", percent: 50 }, { scanPhase: "streaming" });
+        if (job.resourceId === activeCancelResource) {
+          resolveActiveStart();
+          await new Promise<never>((_resolve, reject) => {
+            signal.addEventListener("abort", () => {
+              activeSignalAborted = true;
+              reject(signal.reason instanceof Error ? signal.reason : new Error("job_aborted"));
+            }, { once: true });
+          });
+        }
         if (job.resourceId === retryResource && calls.get(job.resourceId) === 1) {
           throw new workerModule.JobExecutionError("clamav_unavailable", { retryable: true, retryAfterMs: 100 });
         }
@@ -229,6 +244,21 @@ async function main() {
     assert.equal(calls.get(cancelled.resourceId), undefined);
     assert.deepEqual(workerErrors, []);
     console.log("  ✓ 取消 Job 不进入 handler，Worker 无未处理基础设施错误");
+
+    const activeCancelled = await submit("runtime:active-cancel");
+    await admin.query("UPDATE jobs SET resource_id=$2 WHERE id=$1", [activeCancelled.id, activeCancelResource]);
+    await dispatcher.dispatch(activeCancelled);
+    const activeCancelledQueueJob = await queue.getJob(activeCancelled.id);
+    assert.ok(activeCancelledQueueJob);
+    await activeStarted;
+    await webJobs.requestCancel({ learnerId }, activeCancelled.id, "user_requested");
+    assert.deepEqual(
+      await activeCancelledQueueJob.waitUntilFinished(events, JOB_COMPLETION_TIMEOUT_MS),
+      { state: "cancelled" },
+    );
+    assert.equal(activeSignalAborted, true);
+    assert.equal((await webJobs.read({ learnerId }, activeCancelled.id))?.state, "cancelled");
+    console.log("  ✓ 执行中取消由数据库心跳观察并主动中止 handler 的 AbortSignal");
   } finally {
     await worker?.close();
     await queue.obliterate({ force: true }).catch(() => undefined);

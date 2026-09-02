@@ -4,9 +4,9 @@ import { DocumentServiceError, type DocumentParser } from "./document-service-cl
 import type { DocumentParseResult, DocumentParseTarget } from "./document-parse";
 
 type DocumentParses = {
-  start(jobId: string): Promise<DocumentParseTarget>;
-  succeed(jobId: string, result: DocumentParseResult): Promise<{ status: "ready" | "failed"; replayed: boolean }>;
-  fail(jobId: string, errorCode: string): Promise<{ status: "ready" | "failed"; replayed: boolean }>;
+  start(jobId: string, expectedAttempt: number): Promise<DocumentParseTarget>;
+  succeed(jobId: string, expectedAttempt: number, result: DocumentParseResult): Promise<{ status: "ready" | "failed"; replayed: boolean }>;
+  fail(jobId: string, expectedAttempt: number, errorCode: string): Promise<{ status: "ready" | "failed"; replayed: boolean }>;
 };
 
 export function createDocumentParseHandler(input: {
@@ -14,7 +14,7 @@ export function createDocumentParseHandler(input: {
   parser: DocumentParser;
 }): JobHandler {
   return async ({ job, signal, reportProgress }) => {
-    const target = await input.parses.start(job.id);
+    const target = await input.parses.start(job.id, job.attempt);
     if (target.jobId !== job.id
       || target.workspaceId !== job.workspaceId
       || target.documentVersionId !== job.resourceId) {
@@ -37,7 +37,7 @@ export function createDocumentParseHandler(input: {
     }
     await reportProgress({ phase: "document_parse", percent: 90, messageCode: "parse_result_received" });
     try {
-      await input.parses.succeed(job.id, result);
+      await input.parses.succeed(job.id, job.attempt, result);
     } catch {
       return fail("parse_persistence_failed", true);
     }
@@ -49,7 +49,7 @@ export function createDocumentParseHandler(input: {
 
     async function fail(code: string, retryable: boolean): Promise<never> {
       if (!retryable || job.attempt >= job.maxAttempts) {
-        await input.parses.fail(job.id, code);
+        await input.parses.fail(job.id, job.attempt, code);
       }
       throw new JobExecutionError(code, { retryable });
     }

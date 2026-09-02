@@ -15,11 +15,14 @@ Phase 2 将引入文件扫描、文档解析和清理等异步任务。若 Web�
 - Web 只能通过 SECURITY DEFINER 函数提交和请求取消，并通过强制 RLS 读取。owner/editor 可提交或取消，viewer 只能读取。
 - 读取和取消的 interface 只接收服务端解析的 Learner 与 Job ID；调用方不得传入或猜测 Workspace ID，PostgreSQL 从持久 Job 取得它并完成成员授权。
 - Worker 只能调用 transition 函数；函数按 Job ID 锁行并从已持久化记录取得租户，不信任队列 payload 中的 Workspace。
+- 领取和续租统一使用 PostgreSQL `clock_timestamp()`，不接受 Worker 提供的事件时间；应用时钟漂移不能提前领取或延长租约。
+- 每次领取递增 `attempt`。心跳、Job 状态转换以及扫描/解析领域写入都必须提交该 attempt；数据库在同一事务内锁定并校验，过期 Worker 不能覆盖新 Worker 的进度或结果。
+- Worker 最长每 5 秒检查一次持久化取消状态并续租；执行中收到 `cancel_requested` 时主动中止传给 Handler/外部 Adapter 的 `AbortSignal`，随后由同一 attempt 确认 `cancelled`。
 - 状态机固定为 `queued → running → succeeded | partially_succeeded | failed | dead_lettered`，以及 `queued/running → cancel_requested → cancelled`。临时错误可在未耗尽 `max_attempts` 时由 `running → queued`。
 
 ## 结果
 
 - 相同 Workspace/type/idempotency key 与相同正文重放同一个 Job；不同正文明确冲突。
-- Worker kill/restart、QueueEvents 丢失或 Redis 恢复后，可以从 PostgreSQL state/checkpoint 继续。
+- Worker kill/restart、QueueEvents 丢失或 Redis 恢复后，可以从 PostgreSQL state/checkpoint 继续；租约过期后的旧进程即使恢复也已失去写权限。
 - 现阶段没有 Redis Adapter、Job Stream、Document 表或后台进程；本 ADR 不能被解释为异步上传已可用。
 - 新 Job 类型必须同时更新协议、数据库 enum、测试和消费者，不能让未知字符串静默进入队列。

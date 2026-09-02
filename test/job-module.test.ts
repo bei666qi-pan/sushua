@@ -75,7 +75,9 @@ async function main() {
   await admin.query("GRANT SELECT ON jobs, workspace_members TO sushua_web_test");
   await admin.query("GRANT EXECUTE ON FUNCTION submit_job_v1(uuid, uuid, text, uuid, text, text, integer, jsonb, integer, uuid, uuid, timestamptz) TO sushua_web_test");
   await admin.query("GRANT EXECUTE ON FUNCTION request_job_cancel(uuid, text) TO sushua_web_test");
-  await admin.query("GRANT EXECUTE ON FUNCTION transition_job_v1(uuid, text, jsonb, jsonb, text, timestamptz, timestamptz) TO sushua_worker_test");
+  await admin.query("GRANT EXECUTE ON FUNCTION claim_job_v2(uuid, integer) TO sushua_worker_test");
+  await admin.query("GRANT EXECUTE ON FUNCTION heartbeat_job_v1(uuid, integer, integer) TO sushua_worker_test");
+  await admin.query("GRANT EXECUTE ON FUNCTION transition_job_v2(uuid, integer, text, jsonb, jsonb, text, timestamptz) TO sushua_worker_test");
 
   const created = await webJobs.submit(contextA, request);
   assert.equal(created.status, "created");
@@ -108,33 +110,23 @@ async function main() {
   assert.equal(await webJobs.read({ learnerId: learnerB }, created.envelope.id), undefined);
   console.log("  ✓ Job 只依据服务端 Learner 身份与持久记录受 RLS 隔离");
 
-  const started = await workerJobs.apply(created.envelope.id, { type: "start" });
+  const startedClaim = await workerJobs.claim(created.envelope.id, 300);
+  assert.equal(startedClaim.status, "claimed");
+  const started = startedClaim.job;
   assert.equal(started.state, "running");
   assert.equal(started.attempt, 1);
   await assert.rejects(
     () => workerRuntime.withTenant({ learnerId: uuidv7() }, ({ query }) => query(
-      "SELECT transition_job_v1($1,'progress',$2,NULL,NULL,NULL,$3)",
+      "SELECT transition_job_v2($1,1,'progress',$2,NULL,NULL,NULL)",
       [created.envelope.id, {
         phase: "extract",
         percent: 5,
-        updatedAt: "2026-08-31T18:00:00.000Z",
         sourceText: "private content",
-      }, new Date("2026-08-31T18:00:00.000Z")],
+      }],
     )),
     /invalid_job_progress/,
   );
-  const staleWorkerJobs = jobsModule.createJobModule(workerRuntime, {
-    now: () => new Date("2026-08-31T17:59:00.000Z"),
-    newId: uuidv7,
-  });
-  await assert.rejects(
-    () => staleWorkerJobs.apply(created.envelope.id, {
-      type: "progress",
-      progress: { phase: "extract", percent: 10, current: 1, total: 10 },
-    }),
-    /stale_job_event/,
-  );
-  const progressed = await workerJobs.apply(created.envelope.id, {
+  const progressed = await workerJobs.apply(created.envelope.id, 1, {
     type: "progress",
     progress: { phase: "extract", percent: 40, current: 4, total: 10, messageCode: "document_extracting" },
     checkpoint: { page: 4 },
@@ -145,21 +137,33 @@ async function main() {
     current: 4,
     total: 10,
     messageCode: "document_extracting",
-    updatedAt: "2026-08-31T18:00:00.000Z",
+    updatedAt: progressed.progress.updatedAt,
   });
   assert.deepEqual(progressed.checkpoint, { page: 4 });
-  const retried = await workerJobs.apply(created.envelope.id, {
+  const retried = await workerJobs.apply(created.envelope.id, 1, {
     type: "retry",
     errorCode: "document_service_unavailable",
     runAfter: new Date("2026-08-31T18:01:00.000Z"),
   });
   assert.equal(retried.state, "queued");
-  assert.equal((await workerJobs.apply(created.envelope.id, { type: "start" })).attempt, 2);
-  const succeeded = await workerJobs.apply(created.envelope.id, { type: "succeed", checkpoint: { page: 10 } });
+  const secondClaim = await workerJobs.claim(created.envelope.id, 300);
+  assert.equal(secondClaim.status, "claimed");
+  assert.equal(secondClaim.job.attempt, 2);
+  await assert.rejects(
+    () => workerJobs.apply(created.envelope.id, 1, {
+      type: "progress",
+      progress: { phase: "stale", percent: 10 },
+    }),
+    /stale_job_attempt/,
+  );
+  const succeeded = await workerJobs.apply(created.envelope.id, 2, { type: "succeed", checkpoint: { page: 10 } });
   assert.equal(succeeded.state, "succeeded");
   assert.deepEqual(succeeded.checkpoint, { page: 10 });
-  await assert.rejects(() => workerJobs.apply(created.envelope.id, { type: "start" }), /invalid_job_transition/);
-  console.log("  ✓ Worker 从持久 Job 读取租户并执行 start/progress/retry/succeed 状态机");
+  await assert.rejects(
+    () => workerJobs.apply(created.envelope.id, 2, { type: "succeed" }),
+    /invalid_job_transition/,
+  );
+  console.log("  ✓ Worker 从持久 Job 读取租户并执行 claim/progress/retry/succeed，旧 attempt 不能写入");
 
   const cancellable = await webJobs.submit(contextA, { ...request, idempotencyKey: "parse:cancel", resourceId: uuidv7() });
   const cancelRequested = await webJobs.requestCancel({ learnerId: learnerA }, cancellable.envelope.id, "user_requested");
@@ -167,18 +171,19 @@ async function main() {
   assert.equal((await webJobs.requestCancel({ learnerId: learnerA }, cancellable.envelope.id, "user_requested")).state, "cancel_requested");
   await assert.rejects(() => webJobs.requestCancel({ learnerId: learnerB }, cancellable.envelope.id, "not_owner"), /job_not_found/);
   await assert.rejects(() => webJobs.requestCancel({ learnerId: learnerViewer }, cancellable.envelope.id, "viewer_requested"), /job_not_found/);
-  const liveWorkerJobs = jobsModule.createJobModule(workerRuntime, { now: () => new Date(), newId: uuidv7 });
-  const cancelled = await liveWorkerJobs.apply(cancellable.envelope.id, { type: "cancel" });
+  const cancelledClaim = await workerJobs.claim(cancellable.envelope.id, 300);
+  const cancelled = cancelledClaim.job;
   assert.equal(cancelled.state, "cancelled");
   console.log("  ✓ 取消请求幂等，跨租户拒绝，Worker 协作确认后进入 cancelled");
 
   const exhausted = await webJobs.submit(contextA, { ...request, idempotencyKey: "parse:exhausted", resourceId: uuidv7(), maxAttempts: 1 });
-  await workerJobs.apply(exhausted.envelope.id, { type: "start" });
+  const exhaustedClaim = await workerJobs.claim(exhausted.envelope.id, 300);
+  assert.equal(exhaustedClaim.status, "claimed");
   await assert.rejects(
-    () => workerJobs.apply(exhausted.envelope.id, { type: "retry", errorCode: "temporary", runAfter: now() }),
+    () => workerJobs.apply(exhausted.envelope.id, 1, { type: "retry", errorCode: "temporary", runAfter: now() }),
     /job_attempts_exhausted/,
   );
-  assert.equal((await workerJobs.apply(exhausted.envelope.id, { type: "dead_letter", errorCode: "attempts_exhausted" })).state, "dead_lettered");
+  assert.equal((await workerJobs.apply(exhausted.envelope.id, 1, { type: "dead_letter", errorCode: "attempts_exhausted" })).state, "dead_lettered");
   console.log("  ✓ 超过 maxAttempts 不伪造重试，可显式进入 dead_lettered");
 
   await webRuntime.close();
