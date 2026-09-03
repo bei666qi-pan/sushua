@@ -25,6 +25,10 @@ OCR_IMAGE_MIME_TYPES = frozenset({"image/jpeg", "image/png"})
 _PRESERVED_DOCLING_ERRORS = {
     (422, "document_conversion_failed"): False,
     (422, "document_conversion_partial"): False,
+    (422, "invalid_parse_config"): False,
+    (422, "ocr_invalid_source"): False,
+    (422, "ocr_page_limit_exceeded"): False,
+    (422, "ocr_pixel_limit_exceeded"): False,
     (422, "ocr_required"): False,
     (422, "ocr_output_empty"): False,
     (422, "ocr_output_invalid"): False,
@@ -53,6 +57,7 @@ class DoclingParserAdapter:
         storage: StorageAdapter,
         native_pdf_enabled: bool = False,
         ocr_image_enabled: bool = False,
+        ocr_pdf_enabled: bool = False,
     ) -> None:
         self._endpoint = endpoint(base_url)
         if not 32 <= len(token) <= 512 or "\r" in token or "\n" in token:
@@ -64,11 +69,15 @@ class DoclingParserAdapter:
         self._storage = storage
         self._native_pdf_enabled = native_pdf_enabled
         self._ocr_image_enabled = ocr_image_enabled
+        self._ocr_pdf_enabled = ocr_pdf_enabled
 
     def supports(self, mime_type: str) -> bool:
         return (
             mime_type == DOCX_MIME
-            or (mime_type == PDF_MIME and self._native_pdf_enabled)
+            or (
+                mime_type == PDF_MIME
+                and (self._native_pdf_enabled or self._ocr_pdf_enabled)
+            )
             or (mime_type in OCR_IMAGE_MIME_TYPES and self._ocr_image_enabled)
         )
 
@@ -83,6 +92,14 @@ class DoclingParserAdapter:
             raise ValueError("unsupported_media_type")
         if context is None:
             raise ValueError("missing_parser_context")
+        if mime_type == PDF_MIME:
+            ocr_setting = context.parse_config.get("ocr", False)
+            if not isinstance(ocr_setting, bool):
+                raise DoclingAdapterError("invalid_parse_config", 422)
+            if ocr_setting and not self._ocr_pdf_enabled:
+                raise DoclingAdapterError("ocr_pipeline_unavailable", 503)
+            if not ocr_setting and not self._native_pdf_enabled:
+                raise DoclingAdapterError("pdf_models_unavailable", 503)
         request_body = DoclingConvertRequest(
             schemaVersion=1,
             traceId=context.trace_id,
@@ -221,6 +238,7 @@ def adapter_from_environment(
         storage=storage,
         native_pdf_enabled=_enabled(environment.get("DOCLING_NATIVE_PDF_ENABLED")),
         ocr_image_enabled=_enabled(environment.get("DOCLING_OCR_IMAGE_ENABLED")),
+        ocr_pdf_enabled=_enabled(environment.get("DOCLING_OCR_PDF_ENABLED")),
     )
 
 

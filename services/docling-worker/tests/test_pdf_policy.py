@@ -134,6 +134,35 @@ class PdfPolicyTests(unittest.TestCase):
         self.assertFalse(raised.exception.retryable)
         self.assertEqual(storage.read_count, 0)
 
+    def test_pdf_without_an_explicit_ocr_setting_uses_the_native_path(self) -> None:
+        storage = UnreadStorage()
+        service = DoclingConversionService(token="d" * 32, storage=storage)
+        request = self._request().model_copy(
+            update={"parse_config": {"mode": "study_material"}}
+        )
+
+        with self.assertRaises(DoclingServiceError) as raised:
+            service.convert(request)
+
+        self.assertEqual(raised.exception.code, "pdf_models_unavailable")
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertEqual(storage.read_count, 0)
+
+    def test_pdf_rejects_a_non_boolean_ocr_setting_before_reading_source(self) -> None:
+        storage = UnreadStorage()
+        service = DoclingConversionService(token="d" * 32, storage=storage)
+        request = self._request().model_copy(
+            update={"parse_config": {"mode": "study_material", "ocr": "true"}}
+        )
+
+        with self.assertRaises(DoclingServiceError) as raised:
+            service.convert(request)
+
+        self.assertEqual(raised.exception.code, "invalid_parse_config")
+        self.assertEqual(raised.exception.status_code, 422)
+        self.assertFalse(raised.exception.retryable)
+        self.assertEqual(storage.read_count, 0)
+
     @staticmethod
     def _request() -> ConvertRequest:
         return ConvertRequest.model_validate(

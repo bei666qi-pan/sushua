@@ -105,7 +105,7 @@ async function main() {
     console.log("  ✓ 真实 DOCX 在无网络、只读根、非 root 容器中转换");
     console.log(
       paddleOcrVerified
-        ? "  ✓ PaddleOCR CPU 使用预烘焙模型识别官方中文 JPEG，并保留 bbox/置信度"
+        ? "  ✓ PaddleOCR CPU 使用预烘焙模型识别中文 JPEG 与两页扫描 PDF，并保留逐页 bbox/置信度"
         : "  - PaddleOCR CPU 容器识别仅在 Linux x86_64 执行；当前镜像架构已跳过",
     );
     console.log("  ✓ 原生 PDF 使用预烘焙模型在无网络容器中保留两页 provenance");
@@ -792,6 +792,7 @@ function verifyPaddleOcr(): boolean {
     "--mount", `type=bind,src=${fixture},dst=/fixture.base64,readonly`,
     "--env", "HOME=/tmp", "--env", "PYTHONPATH=/app",
     "--env", "PADDLE_OCR_ENABLED=true",
+    "--env", "PADDLE_OCR_PDF_ENABLED=true",
     "--env", "PADDLE_OCR_ARTIFACTS_PATH=/opt/paddle-models",
     "--env", "PADDLE_PDX_CACHE_HOME=/tmp/paddlex",
     "--env", "PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True",
@@ -803,6 +804,8 @@ function verifyPaddleOcr(): boolean {
     `PaddleOCR container probe failed:\n${result.stdout}\n${result.stderr}`,
   );
   assert.match(result.stdout, /"text": "如，和对旅游表演形式"/);
+  assert.match(result.stdout, /"pdfText": "如，和对旅游表演形式"/);
+  assert.match(result.stdout, /"pdfPages": 2/);
   assert.match(result.stdout, /"cv2Version": "4\.10\.0"/);
   assert.match(result.stdout, /"doclingImport": "DocumentConverter"/);
   return true;

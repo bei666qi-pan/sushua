@@ -128,6 +128,36 @@ async function main() {
         && error.code === "document_conversion_partial"
         && !error.retryable,
     );
+
+    for (const deterministicError of [
+      { status: 503, code: "ocr_pipeline_unavailable", retryable: false },
+      { status: 503, code: "ocr_failed", retryable: true },
+      { status: 422, code: "ocr_output_empty", retryable: false },
+      { status: 422, code: "ocr_output_invalid", retryable: false },
+      { status: 422, code: "ocr_invalid_source", retryable: false },
+      { status: 422, code: "ocr_page_limit_exceeded", retryable: false },
+      { status: 422, code: "ocr_pixel_limit_exceeded", retryable: false },
+      { status: 422, code: "invalid_parse_config", retryable: false },
+    ]) {
+      responder = (_request, response) => {
+        response.writeHead(deterministicError.status, { "content-type": "application/json" });
+        response.end(JSON.stringify({
+          schemaVersion: 1,
+          error: {
+            code: deterministicError.code,
+            message: "request rejected",
+            retryable: deterministicError.retryable,
+          },
+        }));
+      };
+      await assert.rejects(
+        () => client.parse(target, new AbortController().signal),
+        (error: unknown) => error instanceof clientModule.DocumentServiceError
+          && error.code === deterministicError.code
+          && error.retryable === deterministicError.retryable,
+        deterministicError.code,
+      );
+    }
     console.log("  ✓ 严格白名单内的确定性错误保留原始重试语义");
 
     responder = (_request, response) => {
