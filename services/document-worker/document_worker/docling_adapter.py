@@ -21,11 +21,16 @@ from .parsers import ParsedDocument, ParserContext, ParserError, _sha256_text
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PDF_MIME = "application/pdf"
+OCR_IMAGE_MIME_TYPES = frozenset({"image/jpeg", "image/png"})
 _PRESERVED_DOCLING_ERRORS = {
     (422, "document_conversion_failed"): False,
     (422, "document_conversion_partial"): False,
     (422, "ocr_required"): False,
+    (422, "ocr_output_empty"): False,
+    (422, "ocr_output_invalid"): False,
     (503, "pdf_models_unavailable"): False,
+    (503, "ocr_pipeline_unavailable"): False,
+    (503, "ocr_failed"): True,
 }
 
 
@@ -273,7 +278,7 @@ def convert_output(
             raise DoclingAdapterError("docling_protocol_error", 502)
         if collection:
             raise DoclingAdapterError("docling_unsupported_structure", 422)
-    if context.source.mime_type == PDF_MIME:
+    if context.source.mime_type == PDF_MIME or context.source.mime_type in OCR_IMAGE_MIME_TYPES:
         pages = _convert_pdf_pages(
             content,
             source_sha256=source_sha256,
@@ -489,7 +494,7 @@ def _block(
         "markdown": markdown,
         "bbox": bbox,
         "readingOrder": reading_order,
-        "confidence": 0.85,
+        "confidence": _confidence(item),
         "sourceHash": _sha256_text(
             f"{parser_version}\n{text}\n{','.join(str(value) for value in bbox)}\n"
             f"{source_sha256}"
@@ -504,6 +509,14 @@ def _text(item: object) -> str:
     if not isinstance(item, dict) or not isinstance(item.get("text"), str):
         raise DoclingAdapterError("docling_protocol_error", 502)
     return item["text"].strip()
+
+
+def _confidence(item: dict[str, Any]) -> float:
+    value = item.get("confidence", 0.85)
+    number = _number(value)
+    if number is None or not 0 <= number <= 1:
+        raise DoclingAdapterError("docling_protocol_error", 502)
+    return float(number)
 
 
 def _positive_integer(value: object) -> TypeGuard[int]:

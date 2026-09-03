@@ -320,6 +320,77 @@ class DoclingAdapterTests(unittest.TestCase):
         self.assertEqual(parsed.pages[0]["blocks"][0]["blockType"], "unknown")
         self.assertEqual(parsed.pages[0]["blocks"][0]["text"], "Visible paragraph")
 
+    def test_ocr_image_preserves_normalized_bbox_and_low_confidence(self) -> None:
+        image_source = self.source.model_copy(update={"mime_type": "image/png"})
+        context = ParserContext(
+            trace_id=self.context.trace_id,
+            workspace_id=self.context.workspace_id,
+            document_id=self.context.document_id,
+            document_version_id=self.context.document_version_id,
+            source=image_source,
+            parse_config={"mode": "study_material", "ocr": True},
+        )
+
+        parsed = convert_output(
+            self._output(
+                context=context,
+                content={
+                    "schema_name": "DoclingDocument",
+                    "pages": {
+                        "1": {"page_no": 1, "size": {"width": 1200, "height": 1600}}
+                    },
+                    "texts": [
+                        {
+                            "text": "一、细胞膜的主要成分是？",
+                            "label": "unknown",
+                            "confidence": 0.42,
+                            "prov": [
+                                {
+                                    "page_no": 1,
+                                    "charspan": [0, 12],
+                                    "bbox": {
+                                        "l": 120,
+                                        "t": 160,
+                                        "r": 1080,
+                                        "b": 320,
+                                        "coord_origin": "TOPLEFT",
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                },
+            ),
+            context=context,
+            source_sha256=context.source.sha256,
+            parser_version="2.124.0",
+        )
+
+        self.assertEqual(
+            parsed.pages,
+            [
+                {
+                    "pageNumber": 1,
+                    "width": 1200,
+                    "height": 1600,
+                    "blocks": [
+                        {
+                            "blockId": "block-1",
+                            "blockType": "unknown",
+                            "text": "一、细胞膜的主要成分是？",
+                            "markdown": "一、细胞膜的主要成分是？",
+                            "bbox": [0.1, 0.1, 0.8, 0.1],
+                            "readingOrder": 0,
+                            "confidence": 0.42,
+                            "sourceHash": (
+                                "76c2752d63c43374ec7235b19ee046e263cd9a150fc787de95199e8558658eed"
+                            ),
+                        }
+                    ],
+                }
+            ],
+        )
+
     def test_section_heading_level_cannot_be_silently_clamped(self) -> None:
         with self.assertRaisesRegex(DoclingAdapterError, "docling_unsupported_structure"):
             self._convert_pdf_text(
