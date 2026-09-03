@@ -21,6 +21,7 @@ function request(input: {
   method?: "GET" | "POST";
   idempotencyKey?: string;
   body?: unknown;
+  signal?: AbortSignal;
 }) {
   const headers = new Headers({ "x-test-learner": input.learnerId });
   if (input.idempotencyKey) headers.set("idempotency-key", input.idempotencyKey);
@@ -29,6 +30,7 @@ function request(input: {
     method: input.method ?? "GET",
     headers,
     body: input.body === undefined ? undefined : JSON.stringify(input.body),
+    signal: input.signal,
   });
 }
 
@@ -95,7 +97,12 @@ async function main() {
         : { learnerId, userId: uuidv7(), kind: "user" as const };
     },
   };
-  const handlers = apiModule.createJobHandlers({ enabled: true, identity, jobs });
+  const handlers = apiModule.createJobHandlers({
+    enabled: true,
+    identity,
+    jobs,
+    stream: { pollIntervalMs: 1, maxDurationMs: 50 },
+  });
 
   console.log("Job v1 HTTP API");
   const ownerRead = await handlers.GET(request({ learnerId: owner }), created.envelope.id);
@@ -119,6 +126,53 @@ async function main() {
   assert.equal(outsiderRead.status, 404);
   assert.equal((await outsiderRead.json()).error.code, "job_not_found");
   console.log("  ✓ viewer 可读，其他租户只获得防枚举 404");
+
+  const outsiderStream = await handlers.STREAM(request({ learnerId: outsider }), created.envelope.id);
+  assert.equal(outsiderStream.status, 404);
+  assert.equal((await outsiderStream.json()).error.code, "job_not_found");
+  console.log("  ✓ 其他租户不能通过 Stream 绕过 Job 隔离");
+
+  const terminal = await jobs.submit({ learnerId: owner, workspaceId: workspace }, {
+    type: "document.parse",
+    resourceId: uuidv7(),
+    idempotencyKey: "job-api-stream-terminal",
+    priority: 1,
+    budget: {},
+    maxAttempts: 1,
+  });
+  await admin.query(
+    `UPDATE jobs SET state='succeeded', progress=$2::jsonb, updated_at=$3 WHERE id=$1`,
+    [terminal.envelope.id, JSON.stringify({ phase: "completed", percent: 100, updatedAt: "2026-09-01T08:01:00.000Z" }), "2026-09-01T08:01:00.000Z"],
+  );
+  const terminalStream = await handlers.STREAM(request({ learnerId: owner }), terminal.envelope.id);
+  assert.equal(terminalStream.status, 200);
+  assert.equal(terminalStream.headers.get("content-type"), "text/event-stream; charset=utf-8");
+  assert.equal(terminalStream.headers.get("cache-control"), "no-cache, no-transform");
+  const terminalEvents = await terminalStream.text();
+  assert.match(terminalEvents, /^retry: 1000\n/);
+  assert.match(terminalEvents, /event: job\n/);
+  assert.match(terminalEvents, /"state":"succeeded"/);
+  assert.match(terminalEvents, /event: done\ndata: \{"state":"succeeded"\}\n\n$/);
+  console.log("  ✓ Stream 输出完整状态快照，终态明确 done 并关闭");
+
+  const abortController = new AbortController();
+  const liveStream = await handlers.STREAM(request({ learnerId: owner, signal: abortController.signal }), created.envelope.id);
+  assert.equal(liveStream.status, 200);
+  const liveReader = liveStream.body?.getReader();
+  assert.ok(liveReader);
+  const firstEvent = await liveReader.read();
+  assert.equal(firstEvent.done, false);
+  abortController.abort();
+  let disconnected = false;
+  for (let readCount = 0; readCount < 4; readCount += 1) {
+    const afterAbort = await liveReader.read();
+    if (afterAbort.done) {
+      disconnected = true;
+      break;
+    }
+  }
+  assert.equal(disconnected, true);
+  console.log("  ✓ 客户端断线会终止轮询并关闭 Stream");
 
   const beforeMissingKey = identityCalls;
   const missingKey = await handlers.CANCEL(request({ learnerId: owner, method: "POST", body: { reason: "user_requested" } }), created.envelope.id);
