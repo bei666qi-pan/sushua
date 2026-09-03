@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -67,6 +68,20 @@ export const sourceAssetUploadState = pgEnum("source_asset_upload_state", [
   "initiated",
   "uploaded",
   "aborted",
+]);
+export const documentBlockType = pgEnum("document_block_type", [
+  "heading",
+  "paragraph",
+  "list",
+  "list_item",
+  "table",
+  "table_cell",
+  "formula",
+  "image",
+  "question_candidate",
+  "answer_candidate",
+  "text",
+  "unknown",
 ]);
 
 export const users = pgTable("users", {
@@ -324,6 +339,52 @@ export const sourceAssets = pgTable("source_assets", {
   index("source_assets_scan_job_idx").on(table.scanJobId).where(sql`scan_job_id IS NOT NULL`),
 ]);
 
+export const pages = pgTable("pages", {
+  id: uuid("id").primaryKey(),
+  workspaceId: uuid("workspace_id").notNull(),
+  documentVersionId: uuid("document_version_id").notNull(),
+  pageNumber: integer("page_number").notNull(),
+  width: doublePrecision("width").notNull(),
+  height: doublePrecision("height").notNull(),
+  renderedImageKey: text("rendered_image_key"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("pages_workspace_version_id_unique")
+    .on(table.workspaceId, table.documentVersionId, table.id),
+  uniqueIndex("pages_version_page_number_unique").on(table.documentVersionId, table.pageNumber),
+  index("pages_workspace_version_page_idx").on(table.workspaceId, table.documentVersionId, table.pageNumber),
+]);
+
+export const blocks = pgTable("blocks", {
+  id: uuid("id").primaryKey(),
+  workspaceId: uuid("workspace_id").notNull(),
+  documentVersionId: uuid("document_version_id").notNull(),
+  pageId: uuid("page_id").notNull(),
+  parentBlockId: uuid("parent_block_id"),
+  blockType: documentBlockType("block_type").notNull(),
+  text: text("text"),
+  markdown: text("markdown"),
+  bbox: jsonb("bbox").notNull(),
+  readingOrder: integer("reading_order").notNull(),
+  confidence: doublePrecision("confidence").notNull(),
+  headingLevel: smallint("heading_level"),
+  tableStructure: jsonb("table_structure"),
+  formulaLatex: text("formula_latex"),
+  imageObjectKey: text("image_object_key"),
+  sourceHash: text("source_hash").notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("blocks_workspace_version_id_unique")
+    .on(table.workspaceId, table.documentVersionId, table.id),
+  uniqueIndex("blocks_page_reading_order_unique").on(table.pageId, table.readingOrder),
+  index("blocks_workspace_version_page_idx").on(table.workspaceId, table.documentVersionId, table.pageId),
+  index("blocks_source_hash_idx").on(table.sourceHash),
+  index("blocks_active_idx")
+    .on(table.workspaceId, table.documentVersionId, table.pageId, table.readingOrder)
+    .where(sql`deleted_at IS NULL`),
+]);
+
 export const postgresSchema = {
   users,
   authSessions,
@@ -339,4 +400,6 @@ export const postgresSchema = {
   documents,
   documentVersions,
   sourceAssets,
+  pages,
+  blocks,
 };
