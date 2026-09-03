@@ -126,6 +126,20 @@
 - PDF 转换保留真实 Page 尺寸、页号、单段完整 `charspan` 和 bbox provenance，再将 BOTTOMLEFT 坐标确定性转为左上角归一化 Document IR。缺页、未知页、跨页/多段来源、不完整 charspan 和越界/非有限 bbox 均失败关闭，不伪造全页或合并框。
 - 本增量不新增线上格式承诺；未经 GitHub → Gitee → Coolify → 公开端点验证前，只能视为本地/仓库能力。
 
+2026-09-03 PaddleOCR CPU 增量复核：
+
+| 组件 | 快照 | 许可 | 决定与安全结论 |
+|---|---|---|---|
+| PaddleOCR | 88,734 Star；v3.7.0 于 2026-06-11 发布；最后提交 2026-07-22 | Apache-2.0 | 精确固定 3.7.0，并只在 Linux x86_64 安装。使用当前 `predict` 接口和显式 `PP-OCRv5_mobile_det` / `PP-OCRv5_mobile_rec` 名称，关闭方向分类、文档矫正、文本行方向和 MKL-DNN。GitHub repository advisory 查询无 HIGH/CRITICAL。替代仍是 `OcrAdapter` 后的云 OCR 或未来经验证的其他本地引擎，不让 Document Service 调用方依赖 Paddle 返回结构。 |
+| PaddlePaddle CPU | 24,066 Star；PyPI 3.3.1；GitHub 最新正式 Release v3.3.0；2026-09-03 活跃 | Apache-2.0 | 精确固定 PyPI 3.3.1。该版本在 Linux 只提供 x86_64 wheel，故本增量明确不宣称 Linux ARM64 支持；Apple Silicon 通过 `--platform linux/amd64` 做真实仿真验收。GitHub repository advisory 查询无 HIGH/CRITICAL。GPU wheel 不进入 P0。 |
+| PaddleX | 6,254 Star；固定 3.7.0；上游最新 v3.7.2；最后提交 2026-06-25 | Apache-2.0 | PaddleOCR 3.7 的运行管线依赖，显式固定 3.7.0，避免兼容范围自动漂移到 3.7.2。GitHub repository advisory 查询无 HIGH/CRITICAL。运行时传入已校验的本地模型目录并禁用模型源探测，不允许任务期下载。 |
+| OpenCV Python | OpenCV 90,699 Star；固定 Python wheel 4.10.0.84；上游最新 5.0.0；2026-09-01 活跃 | Apache-2.0 | PaddleX 3.7.0 固定 `opencv-contrib-python` 4.10.0.84，而 Docling/RapidOCR 原先会解析到 `opencv-python` 5.0.0.93。Linux x86_64 直接约束两者为同一 4.10.0.84，避免两个 `cv2` 分发包版本互相覆盖；组合镜像实测 `cv2.__version__ == 4.10.0`，同时可导入 Docling 并完成真实 OCR。GitHub repository advisory 查询无 HIGH/CRITICAL。 |
+
+- 两组 `PP-OCRv5_mobile` 推理模型仅在构建阶段从 Paddle 官方 BCE BOS 固定 URL 下载；tar SHA256 分别为 `50446e5d…ffc58` 和 `566b9512…4f414`，解包后六个文件继续逐文件校验大小与 SHA256，拒绝符号链接、额外文件和路径逃逸。运行镜像预烘焙模型并设置本地缓存路径，禁网、只读根和数值非 root 探针不会触发下载。
+- 官方 Apache-2.0 仓库 commit `2661c7c…0f854` 的中文 JPEG 已在禁网、只读根、drop capabilities、no-new-privileges、数值非 root 的正式组合镜像中识别为 `如，和对旅游表演形式`，保留像素 bbox `[3,1,278,30]` 和置信度 `0.996762…`。该证据只覆盖 JPEG/PNG CPU OCR；扫描 PDF 仍未验收。
+- 用户明确保留 MarkItDown 0.1.7 作为轻量 Office/HTML Adapter，并批准两张 Debian 文档镜像的 OS 层 HIGH/CRITICAL 全量报告但不作绝对阻断；Python 应用依赖 HIGH/CRITICAL 仍阻断。本增量不追求 Alpine，也不删除 MarkItDown/Magika。
+- 2026-09-03 对当前 amd64 组合镜像双扫：Trivy 0.74.0 报告 Debian 181 项（22 HIGH / 5 CRITICAL）、Python package 0 项；Grype 0.118.0 报告 Debian 163 项（28 HIGH / 9 CRITICAL）和 binary 75 项（35 HIGH / 1 CRITICAL），Python 类型 0 项。binary 主要是 Python 3.12.14 运行时和 OpenCV wheel 内嵌 FFmpeg 5.1.4。试验 OpenCV 5.0.0.93 仍有 17 HIGH 且违反 PaddleX 3.7.x 精确约束，故不为扫描数字私自覆盖上游兼容组合。完整数量、报告 SHA256 和补偿控制记录于 `docs/verification/phase-2p-paddleocr-cpu.md`。
+
 ## Review policy
 
 - npm 包全部精确固定；lockfile 由 `npm ci` 验证可复现。

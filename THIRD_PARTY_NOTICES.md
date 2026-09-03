@@ -48,5 +48,10 @@
 | Torchvision CPU | 0.28.0+cpu | BSD-3-Clause | https://github.com/pytorch/vision |
 | Transformers | 5.8.1 (macOS development) / 5.16.1 (Linux production) | Apache-2.0 | https://github.com/huggingface/transformers |
 | Python | 3.12.14 slim image digest `sha256:e5c9fa26…2d899fc` | PSF-2.0；Debian 组件按各包许可 | https://hub.docker.com/_/python |
+| PaddleOCR | 3.7.0 | Apache-2.0 | https://github.com/PaddlePaddle/PaddleOCR |
+| PaddlePaddle CPU | 3.3.1 | Apache-2.0 | https://github.com/PaddlePaddle/Paddle |
+| PaddleX | 3.7.0 | Apache-2.0 | https://github.com/PaddlePaddle/PaddleX |
+| OpenCV Python / contrib | 4.10.0.84 | Apache-2.0 | https://github.com/opencv/opencv |
+| PP-OCRv5 mobile detection / recognition models | Paddle 3.0 inference snapshots（逐文件 SHA256 固定） | Apache-2.0 | https://github.com/PaddlePaddle/PaddleOCR |
 
 各软件版权归其贡献者所有，并按上游许可证提供。本文件不改变任何上游许可证条款。

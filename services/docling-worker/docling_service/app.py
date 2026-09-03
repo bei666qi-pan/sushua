@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from sushua_document_service.storage import storage_from_environment
 
 from .contracts import ConvertRequest, ConvertResponse
+from .paddle_ocr_adapter import paddle_adapter_from_environment
 from .service import DoclingConversionService, DoclingServiceError, error_body
 
 
@@ -19,6 +20,7 @@ def create_app() -> FastAPI:
         token=token,
         storage=storage_from_environment(os.environ),
         artifacts_path=os.environ.get("DOCLING_ARTIFACTS_PATH") or None,
+        ocr=paddle_adapter_from_environment(os.environ),
     )
     app = FastAPI(
         title="SuShua Docling Service",

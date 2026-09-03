@@ -135,6 +135,23 @@ class DoclingAdapterTests(unittest.TestCase):
             )
         )
 
+    def test_explicit_ocr_image_flag_enables_jpeg_and_png_only(self) -> None:
+        adapter = adapter_from_environment(
+            {
+                "DOCLING_SERVICE_URL": "http://docling.internal",
+                "DOCLING_SERVICE_TOKEN": "d" * 32,
+                "DOCLING_OCR_IMAGE_ENABLED": "true",
+            },
+            UnusedStorage(),
+        )
+
+        self.assertIsNotNone(adapter)
+        assert adapter is not None
+        self.assertTrue(adapter.supports(DOCX_MIME))
+        self.assertTrue(adapter.supports("image/jpeg"))
+        self.assertTrue(adapter.supports("image/png"))
+        self.assertFalse(adapter.supports("application/pdf"))
+
     def test_converts_native_pdf_pages_and_bottom_left_provenance(self) -> None:
         context = self._pdf_context()
         pdf_source = context.source

@@ -52,6 +52,7 @@ class DoclingParserAdapter:
         timeout_seconds: int,
         storage: StorageAdapter,
         native_pdf_enabled: bool = False,
+        ocr_image_enabled: bool = False,
     ) -> None:
         self._endpoint = endpoint(base_url)
         if not 32 <= len(token) <= 512 or "\r" in token or "\n" in token:
@@ -62,10 +63,13 @@ class DoclingParserAdapter:
         self._timeout_seconds = timeout_seconds
         self._storage = storage
         self._native_pdf_enabled = native_pdf_enabled
+        self._ocr_image_enabled = ocr_image_enabled
 
     def supports(self, mime_type: str) -> bool:
-        return mime_type == DOCX_MIME or (
-            mime_type == PDF_MIME and self._native_pdf_enabled
+        return (
+            mime_type == DOCX_MIME
+            or (mime_type == PDF_MIME and self._native_pdf_enabled)
+            or (mime_type in OCR_IMAGE_MIME_TYPES and self._ocr_image_enabled)
         )
 
     def parse(
@@ -216,6 +220,7 @@ def adapter_from_environment(
         timeout_seconds=timeout_seconds,
         storage=storage,
         native_pdf_enabled=_enabled(environment.get("DOCLING_NATIVE_PDF_ENABLED")),
+        ocr_image_enabled=_enabled(environment.get("DOCLING_OCR_IMAGE_ENABLED")),
     )
 
 
