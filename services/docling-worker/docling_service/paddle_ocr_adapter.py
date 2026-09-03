@@ -61,14 +61,26 @@ class PaddleOcrAdapter:
             mime_type == _PDF_MIME_TYPE and self._pdf_enabled
         )
 
-    def recognize(self, source_path: Path, mime_type: str) -> OcrResult:
+    def recognize(
+        self,
+        source_path: Path,
+        mime_type: str,
+        page_numbers: tuple[int, ...] | None = None,
+    ) -> OcrResult:
         if not self.supports(mime_type):
             raise OcrAdapterError("paddle_unsupported_media_type")
         if mime_type == _PDF_MIME_TYPE:
-            return self._recognize_pdf(source_path)
+            return self._recognize_pdf(source_path, page_numbers=page_numbers)
+        if page_numbers is not None:
+            raise OcrAdapterError("paddle_unsupported_media_type")
         return OcrResult(pages=(self._recognize_image(source_path, page_number=1),))
 
-    def _recognize_pdf(self, source_path: Path) -> OcrResult:
+    def _recognize_pdf(
+        self,
+        source_path: Path,
+        *,
+        page_numbers: tuple[int, ...] | None,
+    ) -> OcrResult:
         try:
             document = pdfium.PdfDocument(source_path)
         except (pdfium.PdfiumError, OSError, ValueError) as error:
@@ -93,17 +105,26 @@ class PaddleOcrAdapter:
                 if total_pixels > _MAX_RENDERED_DOCUMENT_PIXELS:
                     raise OcrAdapterError("paddle_pdf_pixel_limit_exceeded")
 
+            selected = page_numbers or tuple(range(1, page_count + 1))
+            if (
+                not selected
+                or tuple(sorted(set(selected))) != selected
+                or selected[0] < 1
+                or selected[-1] > page_count
+            ):
+                raise OcrAdapterError("paddle_invalid_pdf")
             pages: list[OcrPage] = []
-            for index in range(page_count):
+            for page_number in selected:
+                index = page_number - 1
                 page = document[index]
                 bitmap = None
                 try:
                     bitmap = page.render(scale=_PDF_RENDER_SCALE, may_draw_forms=False)
                     rendered = bitmap.to_pil()
-                    rendered_path = source_path.parent / f"ocr-page-{index + 1}.png"
+                    rendered_path = source_path.parent / f"ocr-page-{page_number}.png"
                     rendered.save(rendered_path, format="PNG")
                     pages.append(
-                        self._recognize_image(rendered_path, page_number=index + 1)
+                        self._recognize_image(rendered_path, page_number=page_number)
                     )
                 finally:
                     if bitmap is not None:

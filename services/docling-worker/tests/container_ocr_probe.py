@@ -65,6 +65,13 @@ def main() -> None:
             or not 0 <= top < bottom <= pdf_page.height
         ):
             raise AssertionError("scanned PDF OCR content or provenance regressed")
+    selected_pdf_result = adapter.recognize(
+        scanned_pdf_path,
+        "application/pdf",
+        (2,),
+    )
+    if [page.page_number for page in selected_pdf_result.pages] != [2]:
+        raise AssertionError("selected PDF OCR rendered an unrequested page")
     print(
         json.dumps(
             {
@@ -73,6 +80,9 @@ def main() -> None:
                 "confidence": block.confidence,
                 "pdfText": pdf_result.pages[0].blocks[0].text,
                 "pdfPages": len(pdf_result.pages),
+                "selectedPdfPages": [
+                    page.page_number for page in selected_pdf_result.pages
+                ],
                 "pdfSize": [pdf_result.pages[0].width, pdf_result.pages[0].height],
                 "pdfBbox": pdf_result.pages[0].blocks[0].bbox,
                 "cv2Version": cv2.__version__,

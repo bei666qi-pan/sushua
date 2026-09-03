@@ -6,11 +6,40 @@ from hashlib import sha256
 from pathlib import Path
 
 from docling_service.contracts import ConvertRequest
-from docling_service.ocr import OcrAdapterError, OcrBlock, OcrPage, OcrResult
+from docling_service.ocr import (
+    OcrAdapterError,
+    OcrBlock,
+    OcrOutputError,
+    OcrPage,
+    OcrResult,
+    to_docling_document,
+)
 from docling_service.service import DoclingConversionService, DoclingServiceError
 
 
 class OcrContractTests(unittest.TestCase):
+    def test_page_zero_is_rejected_from_ocr_output(self) -> None:
+        result = OcrResult(
+            pages=(
+                OcrPage(
+                    page_number=0,
+                    width=100,
+                    height=100,
+                    blocks=(
+                        OcrBlock(
+                            text="invalid page",
+                            label="unknown",
+                            bbox=(10, 10, 90, 30),
+                            confidence=0.9,
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        with self.assertRaisesRegex(OcrOutputError, "ocr_output_invalid"):
+            to_docling_document(result, expected_page_numbers=(0,))
+
     def test_scanned_pdf_preserves_page_bbox_confidence_and_unknown_content(self) -> None:
         source = b"scanned-pdf-fixture"
         storage = MemoryStorage(source)

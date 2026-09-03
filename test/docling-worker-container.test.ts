@@ -806,6 +806,7 @@ function verifyPaddleOcr(): boolean {
   assert.match(result.stdout, /"text": "如，和对旅游表演形式"/);
   assert.match(result.stdout, /"pdfText": "如，和对旅游表演形式"/);
   assert.match(result.stdout, /"pdfPages": 2/);
+  assert.match(result.stdout, /"selectedPdfPages": \[2\]/);
   assert.match(result.stdout, /"cv2Version": "4\.10\.0"/);
   assert.match(result.stdout, /"doclingImport": "DocumentConverter"/);
   return true;

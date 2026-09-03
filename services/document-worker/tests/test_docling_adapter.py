@@ -205,6 +205,20 @@ class DoclingAdapterTests(unittest.TestCase):
         ):
             ocr_only.parse(b"", "application/pdf", "a" * 64, native_context)
 
+        auto_context = ParserContext(
+            trace_id=self.context.trace_id,
+            workspace_id=self.context.workspace_id,
+            document_id=self.context.document_id,
+            document_version_id=self.context.document_version_id,
+            source=native_context.source,
+            parse_config={"mode": "study_material"},
+        )
+        with self.assertRaisesRegex(
+            DoclingAdapterError,
+            "ocr_pipeline_unavailable",
+        ):
+            native_only.parse(b"", "application/pdf", "a" * 64, auto_context)
+
     def test_pdf_rejects_an_invalid_ocr_mode_before_calling_docling(self) -> None:
         adapter = adapter_from_environment(
             {
@@ -395,6 +409,68 @@ class DoclingAdapterTests(unittest.TestCase):
                     )
                 ],
                 page_count=2,
+            )
+
+    def test_pdf_routing_evidence_is_preserved_for_document_ir(self) -> None:
+        context = self._pdf_context()
+        routing = {
+            "mode": "auto",
+            "pages": [
+                {
+                    "pageNumber": 1,
+                    "route": "native",
+                    "textCharacters": 17,
+                    "reason": "sufficient_native_text",
+                }
+            ],
+        }
+        output = json.loads(
+            self._output(
+                context=context,
+                content={
+                    "schema_name": "DoclingDocument",
+                    "pages": {
+                        "1": {
+                            "page_no": 1,
+                            "size": {"width": 100, "height": 100},
+                        }
+                    },
+                    "texts": [
+                        {
+                            "text": "Visible paragraph",
+                            "label": "text",
+                            "prov": [
+                                self._provenance(
+                                    page_number=1,
+                                    left=10,
+                                    top=90,
+                                    right=90,
+                                    bottom=50,
+                                )
+                            ],
+                        }
+                    ],
+                },
+            )
+        )
+        output["document"]["routing"] = routing
+
+        parsed = convert_output(
+            json.dumps(output).encode(),
+            context=context,
+            source_sha256=context.source.sha256,
+            parser_version="2.124.0",
+        )
+
+        self.assertEqual(getattr(parsed, "routing", None), routing)
+
+        output["document"]["routing"]["pages"][0]["reason"] = "manual_native_override"
+        with self.assertRaisesRegex(DoclingAdapterError, "docling_protocol_error"):
+            convert_output(
+                json.dumps(output).encode(),
+                context=context,
+                source_sha256=context.source.sha256,
+                parser_version="2.124.0",
             )
 
     def test_unmapped_pdf_label_is_preserved_as_unknown_instead_of_text(self) -> None:

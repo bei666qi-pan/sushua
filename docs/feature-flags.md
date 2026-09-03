@@ -21,8 +21,8 @@ Phase 0 只建立注册表。Phase 1 开始由页面和 API 消费开关；关�
 
 ## 服务内部 capability kill-switch
 
-`DOCLING_NATIVE_PDF_ENABLED` 不是产品 Feature Flag，不经过 `src/lib/feature-flags.ts`；它只决定 Document Service 是否为受控内部请求注册原生 PDF Adapter。默认为 `false`，并且即使开启，请求也必须明确携带 `parseConfig.ocr=false`。当前上传链仍将 `DocumentVersion.parse_config` 初始化为空对象，所以产品和部署配置必须保持该 capability 关闭；本增量只验证内部 PDF → Document IR primitive，不宣称已打通上传产品链。
+`DOCLING_NATIVE_PDF_ENABLED` 不是产品 Feature Flag，不经过 `src/lib/feature-flags.ts`；它只决定 Document Service 是否为受控内部请求注册原生 PDF Adapter。默认为 `false`。`parseConfig.ocr=false` 强制所有页走原生路径；省略 `ocr` 才启用自动逐页判断。当前产品和部署配置仍保持 capability 关闭；本增量只验证内部 PDF → Document IR primitive，不宣称已打通公开上传链。
 
 `PADDLE_OCR_ENABLED` 与 `DOCLING_OCR_IMAGE_ENABLED` 也是内部 capability kill-switch，均默认关闭。前者只在 Docling 镜像内装配已经逐文件校验的 PaddleOCR CPU Adapter；开启但模型目录缺失、被修改、含额外文件或符号链接时进程启动失败。后者只允许 Document Service 把 JPEG/PNG 转发到 Docling。两者必须同时开启才能形成图片 OCR 路由；关闭任一开关时旧解析路径不变，已有对象和任务不删除。
 
-扫描 PDF 额外要求 `DOCLING_OCR_PDF_ENABLED=true`、`PADDLE_OCR_ENABLED=true` 和 `PADDLE_OCR_PDF_ENABLED=true`，且持久化的 `parseConfig.ocr` 必须严格为布尔值 `true`。缺失 `ocr` 不再隐式开启 OCR；字符串等错误类型会以 `invalid_parse_config` 失败关闭。逐页渲染使用 144 DPI，最多 100 页、单页最多 4000 万像素、整份最多 3 亿像素；超限不进入 Paddle 推理。三个开关均默认关闭，当前上传链还没有自动判断扫描页或写入 `ocr:true`，因此不代表公开上传已开启扫描 PDF OCR。
+PDF OCR 额外要求 `DOCLING_OCR_PDF_ENABLED=true`、`PADDLE_OCR_ENABLED=true` 和 `PADDLE_OCR_PDF_ENABLED=true`。`parseConfig.ocr=true` 强制所有页 OCR，`false` 强制所有页原生；省略该字段时按每页可搜索非空白字符数自动选择，低于 24 个字符的页才送 PaddleOCR。字符串等错误类型以 `invalid_parse_config` 失败关闭。路由会记录模式、页码、选择结果和原因；自动/强制原生模式记录字符数，强制 OCR 因未执行文本预检而明确记录 `null`，不能伪写为零。这些证据会随转换结果进入 Document IR。逐页渲染使用 144 DPI，最多 100 页、单页最多 4000 万像素、整份最多 3 亿像素；所有预算在 Docling/Paddle 推理前检查。三个开关均默认关闭，因此这仍不代表公开上传已开启扫描 PDF OCR。
