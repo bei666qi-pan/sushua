@@ -1,6 +1,6 @@
 import { v7 as uuidv7 } from "uuid";
 import type { CurrentIdentity } from "@/features/auth/current-identity";
-import { createJobModule } from "./job-module";
+import { createJobModule, type JobSnapshot } from "./job-module";
 
 type JobModule = ReturnType<typeof createJobModule>;
 type IdentityResolver = { resolve(request: Request): Promise<CurrentIdentity> };
@@ -8,11 +8,21 @@ type HandlerDependencies = {
   enabled: boolean;
   identity?: IdentityResolver;
   jobs?: JobModule;
+  stream?: Partial<JobStreamOptions>;
 };
+type JobStreamOptions = { pollIntervalMs: number; maxDurationMs: number; heartbeatMs: number };
+
+const DEFAULT_STREAM_OPTIONS: JobStreamOptions = {
+  pollIntervalMs: 1_000,
+  maxDurationMs: 25_000,
+  heartbeatMs: 15_000,
+};
+const TERMINAL_STATES = new Set(["succeeded", "partially_succeeded", "failed", "dead_lettered", "cancelled"]);
 
 export function createJobHandlers(input: HandlerDependencies) {
   return {
     GET: (request: Request, jobId: string) => handleRead(input, request, jobId),
+    STREAM: (request: Request, jobId: string) => handleStream(input, request, jobId),
     CANCEL: (request: Request, jobId: string) => handleCancel(input, request, jobId),
   };
 }
@@ -25,6 +35,26 @@ async function handleRead(input: HandlerDependencies, request: Request, jobId: s
     const job = await jobs.read(identityContext(current), jobId);
     if (!job) return withIdentityCookie(apiError(404, "job_not_found", "Job not found", false), current);
     return withIdentityCookie(success(job), current);
+  } catch (error) {
+    return withIdentityCookie(jobError(error), current);
+  }
+}
+
+async function handleStream(input: HandlerDependencies, request: Request, jobId: string): Promise<Response> {
+  if (!input.enabled) return apiError(404, "not_found", "Not found", false);
+  const { identity, jobs } = requireDependencies(input);
+  const current = await identity.resolve(request);
+  const actor = identityContext(current);
+  try {
+    const initial = await jobs.read(actor, jobId);
+    if (!initial) return withIdentityCookie(apiError(404, "job_not_found", "Job not found", false), current);
+    const response = createJobStreamResponse({
+      initial,
+      read: () => jobs.read(actor, jobId),
+      signal: request.signal,
+      options: streamOptions(input.stream),
+    });
+    return withIdentityCookie(response, current);
   } catch (error) {
     return withIdentityCookie(jobError(error), current);
   }
@@ -76,29 +106,125 @@ function identityContext(identity: CurrentIdentity) {
   };
 }
 
-function success(job: Awaited<ReturnType<JobModule["requestCancel"]>>) {
+function success(job: JobSnapshot) {
   return Response.json({
-    data: {
-      id: job.id,
-      workspace_id: job.workspaceId,
-      resource_id: job.resourceId,
-      type: job.type,
-      state: job.state,
-      progress: {
-        phase: job.progress.phase,
-        percent: job.progress.percent,
-        ...(job.progress.current === undefined ? {} : { current: job.progress.current }),
-        ...(job.progress.total === undefined ? {} : { total: job.progress.total }),
-        ...(job.progress.messageCode === undefined ? {} : { message_code: job.progress.messageCode }),
-        updated_at: job.progress.updatedAt,
-      },
-      ...(job.checkpoint === undefined ? {} : { checkpoint: job.checkpoint }),
-      attempt: job.attempt,
-      max_attempts: job.maxAttempts,
-      ...(job.errorCode === undefined ? {} : { error_code: job.errorCode }),
-      run_after: job.runAfter,
-    },
+    data: jobData(job),
     meta: { request_id: uuidv7(), schema_version: "sushua.api.v1" },
+  });
+}
+
+function jobData(job: JobSnapshot) {
+  return {
+    id: job.id,
+    workspace_id: job.workspaceId,
+    resource_id: job.resourceId,
+    type: job.type,
+    state: job.state,
+    progress: {
+      phase: job.progress.phase,
+      percent: job.progress.percent,
+      ...(job.progress.current === undefined ? {} : { current: job.progress.current }),
+      ...(job.progress.total === undefined ? {} : { total: job.progress.total }),
+      ...(job.progress.messageCode === undefined ? {} : { message_code: job.progress.messageCode }),
+      updated_at: job.progress.updatedAt,
+    },
+    ...(job.checkpoint === undefined ? {} : { checkpoint: job.checkpoint }),
+    attempt: job.attempt,
+    max_attempts: job.maxAttempts,
+    ...(job.errorCode === undefined ? {} : { error_code: job.errorCode }),
+    run_after: job.runAfter,
+  };
+}
+
+function createJobStreamResponse(input: {
+  initial: JobSnapshot;
+  read(): Promise<JobSnapshot | undefined>;
+  signal: AbortSignal;
+  options: JobStreamOptions;
+}) {
+  const encoder = new TextEncoder();
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      void pumpJobStream(input, controller, encoder, () => cancelled);
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
+async function pumpJobStream(
+  input: { initial: JobSnapshot; read(): Promise<JobSnapshot | undefined>; signal: AbortSignal; options: JobStreamOptions },
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  encoder: TextEncoder,
+  isCancelled: () => boolean,
+) {
+  const startedAt = Date.now();
+  let heartbeatAt = startedAt;
+  let snapshot: JobSnapshot | undefined = input.initial;
+  let previous = "";
+  try {
+    controller.enqueue(encoder.encode("retry: 1000\n\n"));
+    while (!input.signal.aborted && !isCancelled() && snapshot) {
+      const data = JSON.stringify(jobData(snapshot));
+      if (data !== previous) {
+        controller.enqueue(encoder.encode(`id: ${snapshot.attempt}:${snapshot.progress.updatedAt}\nevent: job\ndata: ${data}\n\n`));
+        previous = data;
+      }
+      if (TERMINAL_STATES.has(snapshot.state)) {
+        controller.enqueue(encoder.encode(`event: done\ndata: ${JSON.stringify({ state: snapshot.state })}\n\n`));
+        controller.close();
+        return;
+      }
+      const now = Date.now();
+      if (now - startedAt >= input.options.maxDurationMs) {
+        controller.enqueue(encoder.encode("event: reconnect\ndata: {\"retry_after_ms\":1000}\n\n"));
+        controller.close();
+        return;
+      }
+      if (now - heartbeatAt >= input.options.heartbeatMs) {
+        controller.enqueue(encoder.encode(": keep-alive\n\n"));
+        heartbeatAt = now;
+      }
+      await wait(input.options.pollIntervalMs, input.signal);
+      if (input.signal.aborted || isCancelled()) break;
+      snapshot = await input.read();
+    }
+    if (!isCancelled()) controller.close();
+  } catch {
+    if (!isCancelled()) {
+      controller.enqueue(encoder.encode("event: error\ndata: {\"code\":\"job_stream_unavailable\",\"retryable\":true}\n\n"));
+      controller.close();
+    }
+  }
+}
+
+function streamOptions(input: Partial<JobStreamOptions> | undefined): JobStreamOptions {
+  const options = { ...DEFAULT_STREAM_OPTIONS, ...input };
+  if (options.pollIntervalMs < 1 || options.maxDurationMs < 1 || options.heartbeatMs < 1) {
+    throw new Error("invalid_job_stream_options");
+  }
+  return options;
+}
+
+function wait(ms: number, signal: AbortSignal) {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+    function done() {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    }
   });
 }
 
