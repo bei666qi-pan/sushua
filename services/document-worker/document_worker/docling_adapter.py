@@ -93,13 +93,15 @@ class DoclingParserAdapter:
         if context is None:
             raise ValueError("missing_parser_context")
         if mime_type == PDF_MIME:
-            ocr_setting = context.parse_config.get("ocr", False)
-            if not isinstance(ocr_setting, bool):
+            ocr_setting = context.parse_config.get("ocr")
+            if ocr_setting is not None and not isinstance(ocr_setting, bool):
                 raise DoclingAdapterError("invalid_parse_config", 422)
             if ocr_setting and not self._ocr_pdf_enabled:
                 raise DoclingAdapterError("ocr_pipeline_unavailable", 503)
-            if not ocr_setting and not self._native_pdf_enabled:
+            if ocr_setting is not True and not self._native_pdf_enabled:
                 raise DoclingAdapterError("pdf_models_unavailable", 503)
+            if ocr_setting is None and not self._ocr_pdf_enabled:
+                raise DoclingAdapterError("ocr_pipeline_unavailable", 503)
         request_body = DoclingConvertRequest(
             schemaVersion=1,
             traceId=context.trace_id,
@@ -313,11 +315,77 @@ def convert_output(
             source_sha256=source_sha256,
             parser_version=parser_version,
         )
+    routing = _routing_evidence(document.get("routing"), page_count=len(pages))
     return ParsedDocument(
         parser="docling",
         parser_version=parser_version,
         pages=pages,
+        routing=routing,
     )
+
+
+def _routing_evidence(value: object, *, page_count: int) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {"mode", "pages"}:
+        raise DoclingAdapterError("docling_protocol_error", 502)
+    mode = value.get("mode")
+    raw_pages = value.get("pages")
+    if mode not in {"auto", "forced_native", "forced_ocr"} or not isinstance(
+        raw_pages, list
+    ):
+        raise DoclingAdapterError("docling_protocol_error", 502)
+    expected_page_numbers = list(range(1, page_count + 1))
+    page_numbers: list[int] = []
+    for page in raw_pages:
+        if not isinstance(page, dict) or set(page) != {
+            "pageNumber",
+            "route",
+            "textCharacters",
+            "reason",
+        }:
+            raise DoclingAdapterError("docling_protocol_error", 502)
+        page_number = page.get("pageNumber")
+        text_characters = page.get("textCharacters")
+        route = page.get("route")
+        reason = page.get("reason")
+        if (
+            not _positive_integer(page_number)
+            or (
+                text_characters is not None
+                and (
+                    not isinstance(text_characters, int)
+                    or isinstance(text_characters, bool)
+                    or text_characters < 0
+                )
+            )
+            or (text_characters is None and mode != "forced_ocr")
+            or route not in {"native", "ocr"}
+            or (
+                mode == "auto"
+                and reason
+                != (
+                    "sufficient_native_text"
+                    if route == "native"
+                    else "insufficient_native_text"
+                )
+            )
+            or (
+                route == "native"
+                and reason not in {"sufficient_native_text", "manual_native_override"}
+            )
+            or (
+                route == "ocr"
+                and reason not in {"insufficient_native_text", "manual_ocr_override"}
+            )
+            or (mode == "forced_native" and reason != "manual_native_override")
+            or (mode == "forced_ocr" and reason != "manual_ocr_override")
+        ):
+            raise DoclingAdapterError("docling_protocol_error", 502)
+        page_numbers.append(page_number)
+    if page_numbers != expected_page_numbers:
+        raise DoclingAdapterError("docling_protocol_error", 502)
+    return value
 
 
 def _convert_logical_page(

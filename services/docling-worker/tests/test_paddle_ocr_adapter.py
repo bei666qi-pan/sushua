@@ -165,6 +165,28 @@ class PaddleOcrAdapterTests(unittest.TestCase):
             ),
         )
 
+    def test_adapter_renders_only_the_selected_pdf_pages(self) -> None:
+        engine = SequencePaddleEngine([valid_prediction("selected second page")])
+        with TemporaryDirectory() as directory:
+            source = Path(directory) / "source.pdf"
+            first = Image.new("RGB", (200, 100), "white")
+            second = Image.new("RGB", (100, 200), "white")
+            first.save(
+                source,
+                format="PDF",
+                save_all=True,
+                append_images=[second],
+                resolution=72,
+            )
+            adapter = object.__new__(PaddleOcrAdapter)
+            adapter._engine = engine
+            adapter._pdf_enabled = True
+
+            result = adapter.recognize(source, "application/pdf", (2,))
+
+        self.assertEqual(engine.rendered_sizes, [(200, 400)])
+        self.assertEqual([page.page_number for page in result.pages], [2])
+
     def test_adapter_rejects_a_malformed_pdf_without_calling_paddle(self) -> None:
         engine = SequencePaddleEngine([valid_prediction("unused")])
         with TemporaryDirectory() as directory:

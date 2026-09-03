@@ -14,6 +14,7 @@ class ParsedDocument:
     parser: str
     parser_version: str
     pages: list[dict[str, Any]]
+    routing: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

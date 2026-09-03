@@ -103,6 +103,7 @@ class DocumentProcessingService:
                 "parseConfig": request.parse_config,
                 "parser": {"name": parsed.parser, "version": parsed.parser_version},
                 "pages": parsed.pages,
+                **({"routing": parsed.routing} if parsed.routing is not None else {}),
             },
         }
         ir_bytes = json.dumps(

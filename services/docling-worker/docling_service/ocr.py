@@ -31,7 +31,12 @@ class OcrResult:
 class OcrAdapter(Protocol):
     def supports(self, mime_type: str) -> bool: ...
 
-    def recognize(self, source_path: Path, mime_type: str) -> OcrResult: ...
+    def recognize(
+        self,
+        source_path: Path,
+        mime_type: str,
+        page_numbers: tuple[int, ...] | None = None,
+    ) -> OcrResult: ...
 
 
 class OcrAdapterError(Exception):
@@ -45,15 +50,24 @@ class OcrOutputError(ValueError):
     pass
 
 
-def to_docling_document(result: OcrResult) -> dict[str, object]:
+def to_docling_document(
+    result: OcrResult,
+    *,
+    expected_page_numbers: tuple[int, ...] | None = None,
+) -> dict[str, object]:
     if not result.pages:
         raise OcrOutputError("ocr_output_empty")
     pages: dict[str, object] = {}
     texts: list[dict[str, object]] = []
-    expected_page_number = 1
-    for page in result.pages:
+    expected_numbers = expected_page_numbers or tuple(range(1, len(result.pages) + 1))
+    if len(expected_numbers) != len(result.pages) or len(set(expected_numbers)) != len(
+        expected_numbers
+    ):
+        raise OcrOutputError("ocr_output_invalid")
+    for page, expected_page_number in zip(result.pages, expected_numbers, strict=True):
         if (
             isinstance(page.page_number, bool)
+            or page.page_number < 1
             or page.page_number != expected_page_number
             or not _positive_finite(page.width)
             or not _positive_finite(page.height)
@@ -88,7 +102,6 @@ def to_docling_document(result: OcrResult) -> dict[str, object]:
             if block.heading_level is not None:
                 item["level"] = block.heading_level
             texts.append(item)
-        expected_page_number += 1
     return {
         "schema_name": "DoclingDocument",
         "pages": pages,
