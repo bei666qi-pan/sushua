@@ -19,6 +19,14 @@ export class DocumentServiceError extends Error {
 type PreservedServiceErrorCode =
   | "document_conversion_failed"
   | "document_conversion_partial"
+  | "invalid_parse_config"
+  | "ocr_failed"
+  | "ocr_invalid_source"
+  | "ocr_output_empty"
+  | "ocr_output_invalid"
+  | "ocr_page_limit_exceeded"
+  | "ocr_pipeline_unavailable"
+  | "ocr_pixel_limit_exceeded"
   | "ocr_required"
   | "pdf_models_unavailable";
 
@@ -28,6 +36,14 @@ const PRESERVED_SERVICE_ERRORS = new Map<
 >([
   ["document_conversion_failed", { status: 422, retryable: false }],
   ["document_conversion_partial", { status: 422, retryable: false }],
+  ["invalid_parse_config", { status: 422, retryable: false }],
+  ["ocr_failed", { status: 503, retryable: true }],
+  ["ocr_invalid_source", { status: 422, retryable: false }],
+  ["ocr_output_empty", { status: 422, retryable: false }],
+  ["ocr_output_invalid", { status: 422, retryable: false }],
+  ["ocr_page_limit_exceeded", { status: 422, retryable: false }],
+  ["ocr_pipeline_unavailable", { status: 503, retryable: false }],
+  ["ocr_pixel_limit_exceeded", { status: 422, retryable: false }],
   ["ocr_required", { status: 422, retryable: false }],
   ["pdf_models_unavailable", { status: 503, retryable: false }],
 ] as const);

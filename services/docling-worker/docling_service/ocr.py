@@ -29,6 +29,8 @@ class OcrResult:
 
 
 class OcrAdapter(Protocol):
+    def supports(self, mime_type: str) -> bool: ...
+
     def recognize(self, source_path: Path, mime_type: str) -> OcrResult: ...
 
 

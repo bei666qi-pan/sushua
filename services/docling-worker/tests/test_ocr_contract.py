@@ -134,6 +134,32 @@ class OcrContractTests(unittest.TestCase):
         self.assertTrue(raised.exception.retryable)
         self.assertEqual(storage.writes, [])
 
+    def test_safe_ocr_rejections_are_translated_to_public_error_codes(self) -> None:
+        cases = [
+            ("paddle_invalid_pdf", "ocr_invalid_source"),
+            ("paddle_invalid_image", "ocr_invalid_source"),
+            ("paddle_pdf_page_limit_exceeded", "ocr_page_limit_exceeded"),
+            ("paddle_pdf_pixel_limit_exceeded", "ocr_pixel_limit_exceeded"),
+            ("paddle_output_invalid", "ocr_output_invalid"),
+        ]
+        source = b"rejected-scan"
+        for private_code, public_code in cases:
+            with self.subTest(private_code=private_code):
+                storage = MemoryStorage(source)
+                service = DoclingConversionService(
+                    token="d" * 32,
+                    storage=storage,
+                    ocr=RejectingOcrAdapter(private_code),
+                )
+
+                with self.assertRaises(DoclingServiceError) as raised:
+                    service.convert(self._request(source, "application/pdf"))
+
+                self.assertEqual(raised.exception.code, public_code)
+                self.assertEqual(raised.exception.status_code, 422)
+                self.assertFalse(raised.exception.retryable)
+                self.assertEqual(storage.writes, [])
+
     @staticmethod
     def _request(source: bytes, mime_type: str) -> ConvertRequest:
         return ConvertRequest.model_validate(
@@ -165,6 +191,9 @@ class FixtureOcrAdapter:
     def __init__(self) -> None:
         self.observed_mime_types: list[str] = []
 
+    def supports(self, mime_type: str) -> bool:
+        return mime_type in {"application/pdf", "image/jpeg", "image/png"}
+
     def recognize(self, source_path: Path, mime_type: str) -> OcrResult:
         self.observed_mime_types.append(mime_type)
         self.assert_source_exists(source_path)
@@ -193,6 +222,9 @@ class FixtureOcrAdapter:
 
 
 class EmptyOcrAdapter:
+    def supports(self, _mime_type: str) -> bool:
+        return True
+
     def recognize(self, _source_path: Path, _mime_type: str) -> OcrResult:
         return OcrResult(
             pages=(OcrPage(page_number=1, width=100, height=100, blocks=()),)
@@ -200,6 +232,9 @@ class EmptyOcrAdapter:
 
 
 class InvalidBboxOcrAdapter:
+    def supports(self, _mime_type: str) -> bool:
+        return True
+
     def recognize(self, _source_path: Path, _mime_type: str) -> OcrResult:
         return OcrResult(
             pages=(
@@ -221,11 +256,28 @@ class InvalidBboxOcrAdapter:
 
 
 class FailingOcrAdapter:
+    def supports(self, _mime_type: str) -> bool:
+        return True
+
     def recognize(self, _source_path: Path, _mime_type: str) -> OcrResult:
         raise OcrAdapterError("/private/model/cache/token", retryable=True)
 
 
+class RejectingOcrAdapter:
+    def __init__(self, code: str) -> None:
+        self.code = code
+
+    def supports(self, _mime_type: str) -> bool:
+        return True
+
+    def recognize(self, _source_path: Path, _mime_type: str) -> OcrResult:
+        raise OcrAdapterError(self.code)
+
+
 class BooleanConfidenceOcrAdapter:
+    def supports(self, _mime_type: str) -> bool:
+        return True
+
     def recognize(self, _source_path: Path, _mime_type: str) -> OcrResult:
         return OcrResult(
             pages=(

@@ -184,7 +184,11 @@ Phase 1 起，完整测试需要真实 PostgreSQL 17 + pgvector 0.8.6；Phase 2 
 | `DOCLING_SERVICE_TOKEN` | Document Service 到 Docling Service 的独立 token，至少 32 字符 | — |
 | `DOCLING_SERVICE_TIMEOUT_SECONDS` | Docling 单次转换超时，范围 1–1800 秒 | `900` |
 | `DOCLING_NATIVE_PDF_ENABLED` | 仅为受控请求开启原生 PDF Adapter，请求还必须显式携带 `ocr:false`；当前上传链未写入该解析配置，因此产品环境必须保持关闭 | `false` |
+| `DOCLING_OCR_IMAGE_ENABLED` | 允许 Document Service 将 JPEG/PNG 交给独立 Docling/PaddleOCR 服务 | `false` |
+| `DOCLING_OCR_PDF_ENABLED` | 允许 Document Service 接收显式 `ocr:true` 的 PDF；不会自动开启图片 OCR | `false` |
 | `DOCLING_ARTIFACTS_PATH` | Docling 离线模型根目录；生产镜像已内置固定 revision 并自动设置，不应覆盖 | — |
+| `PADDLE_OCR_ENABLED` | 在独立 Docling 镜像内装配预烘焙、逐文件校验的 PaddleOCR CPU Adapter | `false` |
+| `PADDLE_OCR_PDF_ENABLED` | 允许 PaddleOCR Adapter 逐页渲染扫描 PDF；需与上述 OCR 开关共同开启 | `false` |
 | `DOCUMENT_STORAGE_ROOT` | Document Service 本地对象 Adapter 的隔离根目录；仅供合同/E2E | — |
 | `GUEST_SESSION_SECRET` | 游客身份 Cookie 的 HMAC 密钥，至少 32 字节 | — |
 | `BETTER_AUTH_URL` | Better Auth 对外基地址 | — |

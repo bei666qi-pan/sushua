@@ -152,6 +152,83 @@ class DoclingAdapterTests(unittest.TestCase):
         self.assertTrue(adapter.supports("image/png"))
         self.assertFalse(adapter.supports("application/pdf"))
 
+    def test_explicit_ocr_pdf_flag_enables_pdf_without_enabling_images(self) -> None:
+        adapter = adapter_from_environment(
+            {
+                "DOCLING_SERVICE_URL": "http://docling.internal",
+                "DOCLING_SERVICE_TOKEN": "d" * 32,
+                "DOCLING_OCR_PDF_ENABLED": "true",
+            },
+            UnusedStorage(),
+        )
+
+        self.assertIsNotNone(adapter)
+        assert adapter is not None
+        self.assertTrue(adapter.supports(DOCX_MIME))
+        self.assertTrue(adapter.supports("application/pdf"))
+        self.assertFalse(adapter.supports("image/jpeg"))
+        self.assertFalse(adapter.supports("image/png"))
+
+    def test_pdf_capability_flags_cannot_borrow_each_others_parse_mode(self) -> None:
+        base_environment = {
+            "DOCLING_SERVICE_URL": "http://docling.internal",
+            "DOCLING_SERVICE_TOKEN": "d" * 32,
+        }
+        native_only = adapter_from_environment(
+            {**base_environment, "DOCLING_NATIVE_PDF_ENABLED": "true"},
+            UnusedStorage(),
+        )
+        ocr_only = adapter_from_environment(
+            {**base_environment, "DOCLING_OCR_PDF_ENABLED": "true"},
+            UnusedStorage(),
+        )
+        assert native_only is not None
+        assert ocr_only is not None
+        native_context = self._pdf_context()
+        ocr_context = ParserContext(
+            trace_id=native_context.trace_id,
+            workspace_id=native_context.workspace_id,
+            document_id=native_context.document_id,
+            document_version_id=native_context.document_version_id,
+            source=native_context.source,
+            parse_config={"mode": "study_material", "ocr": True},
+        )
+
+        with self.assertRaisesRegex(
+            DoclingAdapterError,
+            "ocr_pipeline_unavailable",
+        ):
+            native_only.parse(b"", "application/pdf", "a" * 64, ocr_context)
+        with self.assertRaisesRegex(
+            DoclingAdapterError,
+            "pdf_models_unavailable",
+        ):
+            ocr_only.parse(b"", "application/pdf", "a" * 64, native_context)
+
+    def test_pdf_rejects_an_invalid_ocr_mode_before_calling_docling(self) -> None:
+        adapter = adapter_from_environment(
+            {
+                "DOCLING_SERVICE_URL": "http://docling.internal",
+                "DOCLING_SERVICE_TOKEN": "d" * 32,
+                "DOCLING_NATIVE_PDF_ENABLED": "true",
+                "DOCLING_OCR_PDF_ENABLED": "true",
+            },
+            UnusedStorage(),
+        )
+        assert adapter is not None
+        context = self._pdf_context()
+        invalid_context = ParserContext(
+            trace_id=context.trace_id,
+            workspace_id=context.workspace_id,
+            document_id=context.document_id,
+            document_version_id=context.document_version_id,
+            source=context.source,
+            parse_config={"mode": "study_material", "ocr": "true"},
+        )
+
+        with self.assertRaisesRegex(DoclingAdapterError, "invalid_parse_config"):
+            adapter.parse(b"", "application/pdf", "a" * 64, invalid_context)
+
     def test_converts_native_pdf_pages_and_bottom_left_provenance(self) -> None:
         context = self._pdf_context()
         pdf_source = context.source

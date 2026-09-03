@@ -161,7 +161,8 @@ async function verifyDependencyFailureContracts() {
   const documentPort = await reservePort();
   type Scenario = "auth" | "unavailable" | "models_unavailable" | "wrong_key" | "bad_sha" | "identity"
     | "ocr_required" | "ocr_unavailable" | "ocr_failed" | "ocr_empty" | "ocr_invalid"
-    | "conversion_partial" | "forged_error" | "malformed" | "oversized"
+    | "ocr_invalid_source" | "ocr_page_limit" | "ocr_pixel_limit"
+    | "invalid_parse_config" | "conversion_partial" | "forged_error" | "malformed" | "oversized"
     | "partial_status" | "redirect" | "empty" | "unsupported_structure";
   let scenario: Scenario = "auth";
   let redirectTargetHits = 0;
@@ -230,6 +231,33 @@ async function verifyDependencyFailureContracts() {
             message: "request rejected",
             retryable: false,
           },
+        });
+        return;
+      }
+      if (scenario === "invalid_parse_config") {
+        sendJson(response, 422, {
+          schemaVersion: 1,
+          error: {
+            code: "invalid_parse_config",
+            message: "request rejected",
+            retryable: false,
+          },
+        });
+        return;
+      }
+      if (
+        scenario === "ocr_invalid_source"
+        || scenario === "ocr_page_limit"
+        || scenario === "ocr_pixel_limit"
+      ) {
+        const code = scenario === "ocr_invalid_source"
+          ? "ocr_invalid_source"
+          : scenario === "ocr_page_limit"
+            ? "ocr_page_limit_exceeded"
+            : "ocr_pixel_limit_exceeded";
+        sendJson(response, 422, {
+          schemaVersion: 1,
+          error: { code, message: "request rejected", retryable: false },
         });
         return;
       }
@@ -366,6 +394,30 @@ async function verifyDependencyFailureContracts() {
       { scenario: "ocr_failed", status: 503, code: "ocr_failed", retryable: true },
       { scenario: "ocr_empty", status: 422, code: "ocr_output_empty", retryable: false },
       { scenario: "ocr_invalid", status: 422, code: "ocr_output_invalid", retryable: false },
+      {
+        scenario: "invalid_parse_config",
+        status: 422,
+        code: "invalid_parse_config",
+        retryable: false,
+      },
+      {
+        scenario: "ocr_invalid_source",
+        status: 422,
+        code: "ocr_invalid_source",
+        retryable: false,
+      },
+      {
+        scenario: "ocr_page_limit",
+        status: 422,
+        code: "ocr_page_limit_exceeded",
+        retryable: false,
+      },
+      {
+        scenario: "ocr_pixel_limit",
+        status: 422,
+        code: "ocr_pixel_limit_exceeded",
+        retryable: false,
+      },
       {
         scenario: "conversion_partial",
         status: 422,

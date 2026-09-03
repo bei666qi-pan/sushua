@@ -31,6 +31,13 @@ SUPPORTED_MIME_SUFFIXES = {
     "image/png": ".png",
 }
 OCR_IMAGE_MIME_TYPES = frozenset({"image/jpeg", "image/png"})
+_PUBLIC_OCR_ERRORS = {
+    "paddle_invalid_image": "ocr_invalid_source",
+    "paddle_invalid_pdf": "ocr_invalid_source",
+    "paddle_output_invalid": "ocr_output_invalid",
+    "paddle_pdf_page_limit_exceeded": "ocr_page_limit_exceeded",
+    "paddle_pdf_pixel_limit_exceeded": "ocr_pixel_limit_exceeded",
+}
 
 
 class DoclingServiceError(Exception):
@@ -81,11 +88,15 @@ class DoclingConversionService:
         suffix = SUPPORTED_MIME_SUFFIXES.get(request.source.mime_type)
         if suffix is None:
             raise DoclingServiceError("unsupported_media_type", 415)
+        ocr_setting = request.parse_config.get("ocr", False)
+        if not isinstance(ocr_setting, bool):
+            raise DoclingServiceError("invalid_parse_config", 422)
         use_ocr = request.source.mime_type in OCR_IMAGE_MIME_TYPES or (
-            request.source.mime_type == "application/pdf"
-            and request.parse_config.get("ocr") is not False
+            request.source.mime_type == "application/pdf" and ocr_setting
         )
-        if use_ocr and self._ocr is None:
+        if use_ocr and (
+            self._ocr is None or not self._ocr.supports(request.source.mime_type)
+        ):
             raise DoclingServiceError("ocr_pipeline_unavailable", 503)
         if (
             request.source.mime_type == "application/pdf"
@@ -129,6 +140,9 @@ class DoclingConversionService:
         except DoclingServiceError:
             raise
         except OcrAdapterError as error:
+            public_code = _PUBLIC_OCR_ERRORS.get(error.code) if not error.retryable else None
+            if public_code is not None:
+                raise DoclingServiceError(public_code, 422) from error
             raise DoclingServiceError(
                 "ocr_failed",
                 503 if error.retryable else 422,

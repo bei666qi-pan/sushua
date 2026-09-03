@@ -5,12 +5,18 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, TypeGuard
 
+import pypdfium2 as pdfium  # type: ignore[import-untyped]
 from PIL import Image
 
 from .ocr import OcrAdapterError, OcrBlock, OcrPage, OcrResult
 from .paddle_model_artifacts import validated_paddle_artifacts_path
 
 _IMAGE_MIME_TYPES = frozenset({"image/jpeg", "image/png"})
+_PDF_MIME_TYPE = "application/pdf"
+_PDF_RENDER_SCALE = 2
+_MAX_PDF_PAGES = 100
+_MAX_RENDERED_PAGE_PIXELS = 40_000_000
+_MAX_RENDERED_DOCUMENT_PIXELS = 300_000_000
 
 
 def paddle_adapter_from_environment(
@@ -23,11 +29,14 @@ def paddle_adapter_from_environment(
     )
     if artifacts_path is None:
         raise RuntimeError("invalid_paddle_ocr_artifacts")
-    return PaddleOcrAdapter(artifacts_path)
+    return PaddleOcrAdapter(
+        artifacts_path,
+        pdf_enabled=_enabled(environment.get("PADDLE_OCR_PDF_ENABLED")),
+    )
 
 
 class PaddleOcrAdapter:
-    def __init__(self, artifacts_path: Path) -> None:
+    def __init__(self, artifacts_path: Path, *, pdf_enabled: bool = False) -> None:
         from paddleocr import PaddleOCR  # type: ignore[import-not-found,import-untyped]
 
         self._engine: Any = PaddleOCR(
@@ -45,10 +54,70 @@ class PaddleOcrAdapter:
             device="cpu",
             enable_mkldnn=False,
         )
+        self._pdf_enabled = pdf_enabled
+
+    def supports(self, mime_type: str) -> bool:
+        return mime_type in _IMAGE_MIME_TYPES or (
+            mime_type == _PDF_MIME_TYPE and self._pdf_enabled
+        )
 
     def recognize(self, source_path: Path, mime_type: str) -> OcrResult:
-        if mime_type not in _IMAGE_MIME_TYPES:
+        if not self.supports(mime_type):
             raise OcrAdapterError("paddle_unsupported_media_type")
+        if mime_type == _PDF_MIME_TYPE:
+            return self._recognize_pdf(source_path)
+        return OcrResult(pages=(self._recognize_image(source_path, page_number=1),))
+
+    def _recognize_pdf(self, source_path: Path) -> OcrResult:
+        try:
+            document = pdfium.PdfDocument(source_path)
+        except (pdfium.PdfiumError, OSError, ValueError) as error:
+            raise OcrAdapterError("paddle_invalid_pdf") from error
+        try:
+            page_count = len(document)
+            if page_count < 1:
+                raise OcrAdapterError("paddle_invalid_pdf")
+            if page_count > _MAX_PDF_PAGES:
+                raise OcrAdapterError("paddle_pdf_page_limit_exceeded")
+            page_sizes = [document.get_page_size(index) for index in range(page_count)]
+            total_pixels = 0
+            for width, height in page_sizes:
+                if not _positive_number(width) or not _positive_number(height):
+                    raise OcrAdapterError("paddle_invalid_pdf")
+                pixels = math.ceil(width * _PDF_RENDER_SCALE) * math.ceil(
+                    height * _PDF_RENDER_SCALE
+                )
+                if pixels > _MAX_RENDERED_PAGE_PIXELS:
+                    raise OcrAdapterError("paddle_pdf_pixel_limit_exceeded")
+                total_pixels += pixels
+                if total_pixels > _MAX_RENDERED_DOCUMENT_PIXELS:
+                    raise OcrAdapterError("paddle_pdf_pixel_limit_exceeded")
+
+            pages: list[OcrPage] = []
+            for index in range(page_count):
+                page = document[index]
+                bitmap = None
+                try:
+                    bitmap = page.render(scale=_PDF_RENDER_SCALE, may_draw_forms=False)
+                    rendered = bitmap.to_pil()
+                    rendered_path = source_path.parent / f"ocr-page-{index + 1}.png"
+                    rendered.save(rendered_path, format="PNG")
+                    pages.append(
+                        self._recognize_image(rendered_path, page_number=index + 1)
+                    )
+                finally:
+                    if bitmap is not None:
+                        bitmap.close()
+                    page.close()
+            return OcrResult(pages=tuple(pages))
+        except OcrAdapterError:
+            raise
+        except (pdfium.PdfiumError, OSError, ValueError) as error:
+            raise OcrAdapterError("paddle_invalid_pdf") from error
+        finally:
+            document.close()
+
+    def _recognize_image(self, source_path: Path, *, page_number: int) -> OcrPage:
         try:
             with Image.open(source_path) as image:
                 width, height = image.size
@@ -67,15 +136,11 @@ class PaddleOcrAdapter:
         prediction = result_json.get("res")
         if not isinstance(prediction, Mapping):
             raise OcrAdapterError("paddle_output_invalid")
-        return OcrResult(
-            pages=(
-                paddle_prediction_to_page(
-                    prediction,
-                    page_number=1,
-                    width=width,
-                    height=height,
-                ),
-            )
+        return paddle_prediction_to_page(
+            prediction,
+            page_number=page_number,
+            width=width,
+            height=height,
         )
 
 
@@ -150,6 +215,10 @@ def _box(value: object, *, width: float, height: float) -> bool:
 
 def _number(value: object) -> TypeGuard[int | float]:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _positive_number(value: object) -> TypeGuard[int | float]:
+    return _number(value) and value > 0
 
 
 def _polygon_matches_box(polygon: object, box: object) -> bool:
