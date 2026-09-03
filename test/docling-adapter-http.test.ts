@@ -160,7 +160,8 @@ async function verifyDependencyFailureContracts() {
   const redirectTargetPort = await reservePort();
   const documentPort = await reservePort();
   type Scenario = "auth" | "unavailable" | "models_unavailable" | "wrong_key" | "bad_sha" | "identity"
-    | "ocr_required" | "conversion_partial" | "forged_error" | "malformed" | "oversized"
+    | "ocr_required" | "ocr_unavailable" | "ocr_failed" | "ocr_empty" | "ocr_invalid"
+    | "conversion_partial" | "forged_error" | "malformed" | "oversized"
     | "partial_status" | "redirect" | "empty" | "unsupported_structure";
   let scenario: Scenario = "auth";
   let redirectTargetHits = 0;
@@ -200,6 +201,35 @@ async function verifyDependencyFailureContracts() {
         sendJson(response, 422, {
           schemaVersion: 1,
           error: { code: "ocr_required", message: "request rejected", retryable: false },
+        });
+        return;
+      }
+      if (scenario === "ocr_unavailable") {
+        sendJson(response, 503, {
+          schemaVersion: 1,
+          error: {
+            code: "ocr_pipeline_unavailable",
+            message: "request rejected",
+            retryable: false,
+          },
+        });
+        return;
+      }
+      if (scenario === "ocr_failed") {
+        sendJson(response, 503, {
+          schemaVersion: 1,
+          error: { code: "ocr_failed", message: "request rejected", retryable: true },
+        });
+        return;
+      }
+      if (scenario === "ocr_empty" || scenario === "ocr_invalid") {
+        sendJson(response, 422, {
+          schemaVersion: 1,
+          error: {
+            code: scenario === "ocr_empty" ? "ocr_output_empty" : "ocr_output_invalid",
+            message: "request rejected",
+            retryable: false,
+          },
         });
         return;
       }
@@ -327,6 +357,15 @@ async function verifyDependencyFailureContracts() {
         retryable: false,
       },
       { scenario: "ocr_required", status: 422, code: "ocr_required", retryable: false },
+      {
+        scenario: "ocr_unavailable",
+        status: 503,
+        code: "ocr_pipeline_unavailable",
+        retryable: false,
+      },
+      { scenario: "ocr_failed", status: 503, code: "ocr_failed", retryable: true },
+      { scenario: "ocr_empty", status: 422, code: "ocr_output_empty", retryable: false },
+      { scenario: "ocr_invalid", status: 422, code: "ocr_output_invalid", retryable: false },
       {
         scenario: "conversion_partial",
         status: 422,

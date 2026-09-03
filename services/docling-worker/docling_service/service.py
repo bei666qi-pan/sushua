@@ -19,6 +19,7 @@ from sushua_document_service.storage import StorageAdapter
 
 from .contracts import ConvertRequest, ConvertResponse, ConvertResult
 from .model_artifacts import MODEL_REVISION, validated_artifacts_path
+from .ocr import OcrAdapter, OcrAdapterError, OcrOutputError, to_docling_document
 
 PARSER_VERSION = "2.124.0"
 SUPPORTED_MIME_SUFFIXES = {
@@ -26,7 +27,10 @@ SUPPORTED_MIME_SUFFIXES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
 }
+OCR_IMAGE_MIME_TYPES = frozenset({"image/jpeg", "image/png"})
 
 
 class DoclingServiceError(Exception):
@@ -44,9 +48,11 @@ class DoclingConversionService:
         token: str,
         storage: StorageAdapter,
         artifacts_path: str | Path | None = None,
+        ocr: OcrAdapter | None = None,
     ) -> None:
         self._token = token
         self._storage = storage
+        self._ocr = ocr
         self._artifacts_configured = artifacts_path is not None
         self._artifacts_path = validated_artifacts_path(artifacts_path)
         self._default_converter = DocumentConverter()
@@ -75,11 +81,18 @@ class DoclingConversionService:
         suffix = SUPPORTED_MIME_SUFFIXES.get(request.source.mime_type)
         if suffix is None:
             raise DoclingServiceError("unsupported_media_type", 415)
-        if request.source.mime_type == "application/pdf":
-            if request.parse_config.get("ocr") is not False:
-                raise DoclingServiceError("ocr_required", 422)
-            if self._pdf_converter is None:
-                raise DoclingServiceError("pdf_models_unavailable", 503)
+        use_ocr = request.source.mime_type in OCR_IMAGE_MIME_TYPES or (
+            request.source.mime_type == "application/pdf"
+            and request.parse_config.get("ocr") is not False
+        )
+        if use_ocr and self._ocr is None:
+            raise DoclingServiceError("ocr_pipeline_unavailable", 503)
+        if (
+            request.source.mime_type == "application/pdf"
+            and not use_ocr
+            and self._pdf_converter is None
+        ):
+            raise DoclingServiceError("pdf_models_unavailable", 503)
         try:
             source = self._storage.read(request.source.object_key)
         except FileNotFoundError as error:
@@ -95,20 +108,34 @@ class DoclingConversionService:
             with TemporaryDirectory(prefix="sushua-docling-") as directory:
                 source_path = Path(directory) / f"source{suffix}"
                 source_path.write_bytes(source)
-                converter = (
-                    self._pdf_converter
-                    if request.source.mime_type == "application/pdf"
-                    else self._default_converter
-                )
-                assert converter is not None
-                conversion = converter.convert(source_path)
-                if conversion.status == ConversionStatus.PARTIAL_SUCCESS:
-                    raise DoclingServiceError("document_conversion_partial", 422)
-                if conversion.status != ConversionStatus.SUCCESS:
-                    raise DoclingServiceError("document_conversion_failed", 422)
-                converted = conversion.document.export_to_dict()
+                if use_ocr:
+                    assert self._ocr is not None
+                    converted = to_docling_document(
+                        self._ocr.recognize(source_path, request.source.mime_type)
+                    )
+                else:
+                    converter = (
+                        self._pdf_converter
+                        if request.source.mime_type == "application/pdf"
+                        else self._default_converter
+                    )
+                    assert converter is not None
+                    conversion = converter.convert(source_path)
+                    if conversion.status == ConversionStatus.PARTIAL_SUCCESS:
+                        raise DoclingServiceError("document_conversion_partial", 422)
+                    if conversion.status != ConversionStatus.SUCCESS:
+                        raise DoclingServiceError("document_conversion_failed", 422)
+                    converted = conversion.document.export_to_dict()
         except DoclingServiceError:
             raise
+        except OcrAdapterError as error:
+            raise DoclingServiceError(
+                "ocr_failed",
+                503 if error.retryable else 422,
+                retryable=error.retryable,
+            ) from error
+        except OcrOutputError as error:
+            raise DoclingServiceError(str(error), 422) from error
         except Exception as error:
             raise DoclingServiceError("document_conversion_failed", 422) from error
 

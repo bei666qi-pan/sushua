@@ -119,7 +119,7 @@ class PdfPolicyTests(unittest.TestCase):
         self.assertFalse(raised.exception.retryable)
         self.assertEqual(storage.read_count, 0)
 
-    def test_pdf_ocr_request_is_rejected_before_reading_source(self) -> None:
+    def test_pdf_ocr_request_without_engine_fails_before_reading_source(self) -> None:
         storage = UnreadStorage()
         service = DoclingConversionService(token="d" * 32, storage=storage)
         request = self._request().model_copy(
@@ -129,8 +129,8 @@ class PdfPolicyTests(unittest.TestCase):
         with self.assertRaises(DoclingServiceError) as raised:
             service.convert(request)
 
-        self.assertEqual(raised.exception.code, "ocr_required")
-        self.assertEqual(raised.exception.status_code, 422)
+        self.assertEqual(raised.exception.code, "ocr_pipeline_unavailable")
+        self.assertEqual(raised.exception.status_code, 503)
         self.assertFalse(raised.exception.retryable)
         self.assertEqual(storage.read_count, 0)
 
