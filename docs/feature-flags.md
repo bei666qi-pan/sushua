@@ -22,3 +22,5 @@ Phase 0 只建立注册表。Phase 1 开始由页面和 API 消费开关；关�
 ## 服务内部 capability kill-switch
 
 `DOCLING_NATIVE_PDF_ENABLED` 不是产品 Feature Flag，不经过 `src/lib/feature-flags.ts`；它只决定 Document Service 是否为受控内部请求注册原生 PDF Adapter。默认为 `false`，并且即使开启，请求也必须明确携带 `parseConfig.ocr=false`。当前上传链仍将 `DocumentVersion.parse_config` 初始化为空对象，所以产品和部署配置必须保持该 capability 关闭；本增量只验证内部 PDF → Document IR primitive，不宣称已打通上传产品链。
+
+`PADDLE_OCR_ENABLED` 与 `DOCLING_OCR_IMAGE_ENABLED` 也是内部 capability kill-switch，均默认关闭。前者只在 Docling 镜像内装配已经逐文件校验的 PaddleOCR CPU Adapter；开启但模型目录缺失、被修改、含额外文件或符号链接时进程启动失败。后者只允许 Document Service 把 JPEG/PNG 转发到 Docling，不包含扫描 PDF。两者必须同时开启才能形成图片 OCR 路由；关闭任一开关时旧解析路径不变，已有对象和任务不删除。

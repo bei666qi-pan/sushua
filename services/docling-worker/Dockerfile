@@ -11,6 +11,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
 COPY services/docling-worker/pyproject.toml services/docling-worker/uv.lock ./
 COPY packages/document-service-python /build/packages/document-service-python
 COPY services/docling-worker/docling_service/model_artifacts.py /build/model_artifacts.py
+COPY services/docling-worker/docling_service/paddle_model_artifacts.py /build/paddle_model_artifacts.py
 COPY --from=uv /uv /usr/local/bin/uv
 RUN env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
       uv sync --frozen --no-dev --no-install-project \
@@ -18,6 +19,8 @@ RUN env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -
 RUN env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
       HF_HUB_DISABLE_TELEMETRY=1 \
       /opt/venv/bin/python /build/model_artifacts.py /opt/docling-models
+RUN env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
+      /opt/venv/bin/python /build/paddle_model_artifacts.py /opt/paddle-models
 
 FROM ${PYTHON_IMAGE} AS runner
 ENV PATH=/opt/venv/bin:$PATH \
@@ -29,10 +32,23 @@ ENV PATH=/opt/venv/bin:$PATH \
     HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1 \
     DOCLING_ARTIFACTS_PATH=/opt/docling-models \
+    PADDLE_OCR_ARTIFACTS_PATH=/opt/paddle-models \
+    PADDLE_PDX_CACHE_HOME=/tmp/paddlex \
+    PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True \
     STORAGE_DRIVER=s3 \
     DOCUMENT_STORAGE_ROOT=/data
 WORKDIR /app
 RUN rm -rf /usr/local/lib/python3.12/site-packages/* \
+    && env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
+      -u http_proxy -u https_proxy -u all_proxy apt-get update \
+    && env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
+      -u http_proxy -u https_proxy -u all_proxy \
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      libgl1 \
+      libglib2.0-0 \
+      libgomp1 \
+      libxcb1 \
+    && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 sushua-docling \
     && useradd --system --uid 10001 --gid 10001 --home-dir /nonexistent \
       --shell /usr/sbin/nologin sushua-docling \
@@ -40,6 +56,7 @@ RUN rm -rf /usr/local/lib/python3.12/site-packages/* \
     && chown 10001:10001 /data
 COPY --from=dependencies /opt/venv /opt/venv
 COPY --from=dependencies /opt/docling-models /opt/docling-models
+COPY --from=dependencies /opt/paddle-models /opt/paddle-models
 COPY --chown=10001:10001 services/docling-worker/docling_service ./docling_service
 USER 10001:10001
 EXPOSE 8000

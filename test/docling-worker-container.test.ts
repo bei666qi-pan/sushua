@@ -80,6 +80,7 @@ async function main() {
       "5.16.1",
       "Linux Docling image must select the audited Transformers branch from the universal lock",
     );
+    const paddleOcrVerified = verifyPaddleOcr();
 
     const markdown = runIsolated(fixtures, [
       "from docling.document_converter import DocumentConverter",
@@ -102,6 +103,11 @@ async function main() {
     await verifyHttpBoundary(fixtures);
     console.log("Docling isolated image contract");
     console.log("  ✓ 真实 DOCX 在无网络、只读根、非 root 容器中转换");
+    console.log(
+      paddleOcrVerified
+        ? "  ✓ PaddleOCR CPU 使用预烘焙模型识别官方中文 JPEG，并保留 bbox/置信度"
+        : "  - PaddleOCR CPU 容器识别仅在 Linux x86_64 执行；当前镜像架构已跳过",
+    );
     console.log("  ✓ 原生 PDF 使用预烘焙模型在无网络容器中保留两页 provenance");
     console.log("  ✓ Document Service 经内网 Docling 生成可定位的两页 Document IR");
     console.log("  ✓ 两张镜像通过 0600 本地对象完成跨服务交接，未放宽文件权限");
@@ -763,6 +769,43 @@ function runIsolated(fixtures: string, script: string) {
     "--env", "HOME=/tmp/home", "--env", "HF_HOME=/tmp/huggingface",
     "--entrypoint", "python", IMAGE, "-c", script,
   );
+}
+
+function verifyPaddleOcr(): boolean {
+  const architecture = docker(
+    "image", "inspect", IMAGE, "--format", "{{.Architecture}}",
+  ).trim();
+  if (architecture !== "amd64") return false;
+  const probe = path.join(
+    process.cwd(),
+    "services/docling-worker/tests/container_ocr_probe.py",
+  );
+  const fixture = path.join(
+    process.cwd(),
+    "services/docling-worker/tests/fixtures/paddleocr-ch-doc1.jpg.base64",
+  );
+  const result = spawnSync("docker", [
+    "run", "--rm", "--network", "none", "--read-only", "--cap-drop", "ALL",
+    "--security-opt", "no-new-privileges:true",
+    "--tmpfs", "/tmp:rw,noexec,nosuid,size=268435456",
+    "--mount", `type=bind,src=${probe},dst=/probe.py,readonly`,
+    "--mount", `type=bind,src=${fixture},dst=/fixture.base64,readonly`,
+    "--env", "HOME=/tmp", "--env", "PYTHONPATH=/app",
+    "--env", "PADDLE_OCR_ENABLED=true",
+    "--env", "PADDLE_OCR_ARTIFACTS_PATH=/opt/paddle-models",
+    "--env", "PADDLE_PDX_CACHE_HOME=/tmp/paddlex",
+    "--env", "PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True",
+    "--entrypoint", "python", IMAGE, "/probe.py", "/fixture.base64",
+  ], { cwd: process.cwd(), encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
+  assert.equal(
+    result.status,
+    0,
+    `PaddleOCR container probe failed:\n${result.stdout}\n${result.stderr}`,
+  );
+  assert.match(result.stdout, /"text": "如，和对旅游表演形式"/);
+  assert.match(result.stdout, /"cv2Version": "4\.10\.0"/);
+  assert.match(result.stdout, /"doclingImport": "DocumentConverter"/);
+  return true;
 }
 
 async function createDocx(target: string) {
