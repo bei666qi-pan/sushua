@@ -141,6 +141,12 @@
 - 2026-09-03 对当前 amd64 组合镜像双扫：Trivy 0.74.0 报告 Debian 181 项（22 HIGH / 5 CRITICAL）、Python package 0 项；Grype 0.118.0 报告 Debian 163 项（28 HIGH / 9 CRITICAL）和 binary 75 项（35 HIGH / 1 CRITICAL），Python 类型 0 项。binary 主要是 Python 3.12.14 运行时和 OpenCV wheel 内嵌 FFmpeg 5.1.4。试验 OpenCV 5.0.0.93 仍有 17 HIGH 且违反 PaddleX 3.7.x 精确约束，故不为扫描数字私自覆盖上游兼容组合。完整数量、报告 SHA256 和补偿控制记录于 `docs/verification/phase-2p-paddleocr-cpu.md`。
 - Phase 2q 不新增 OCR 依赖；继续使用 Docling 已固定的 `pypdfium2` 5.13.0 在内存/像素预算内逐页渲染扫描 PDF，再交给 PaddleOCR 3.7.0 CPU Adapter。最新源码已在禁网、只读根、非 root、drop-all-capabilities 的 amd64 镜像中实测两页扫描 PDF；文本、页序、页面像素尺寸、bbox 和置信度均由真实 Paddle 输出验证。详见 `docs/verification/phase-2q-scanned-pdf-ocr.md`。
 
+2026-09-04 Phase 3b Document IR indexing 增量复核：
+
+- 本 PR 不新增、升级或分发任何 OSS 依赖；新增的是 Web/Worker 与 PostgreSQL 间的自有 IR 索引 Module、SQL migration 和测试。
+- 对既有 Document IR 生产输入 Docling 复核：65,965 Star、MIT、最近推送 2026-09-03。GitHub 当前列出 7 条 repository advisory，其中 4 条为 HIGH（EasyOCR 模型下载、USPTO/METS、HTML URI/Playwright 路径）；本 PR 不扩大这些后端、下载或 URL 能力，也不将文档正文交给 Worker。Docling 仍固定为既有 2.124.0 并在独立受限镜像中运行；其升级和 advisory 修复状态必须在修改镜像依赖的 PR 中再次逐项核对。
+- 索引 Module 只读取已存在的私有对象引用，数据库 Worker 只能获准调用 `index_document_ir_v1`，没有 `pages`/`blocks` 直写权限；本条为自有权限收敛，不产生额外第三方许可证或供应链面。
+
 ## Review policy
 
 - npm 包全部精确固定；lockfile 由 `npm ci` 验证可复现。

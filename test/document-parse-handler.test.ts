@@ -47,12 +47,19 @@ async function main() {
   const replay = await seedParse(admin, "handler-replay", 3);
   const worker = createPostgresRuntime({ connectionString: roleUrl(databaseUrl), maxConnections: 2 });
   const parses = createDocumentParseModule(worker, { now: () => eventAt });
+  const indexer = {
+    async index(input: { target: { documentVersionId: string }; result: { irSha256: string } }) {
+      await markIndexed(admin, input.target.documentVersionId, input.result.irSha256);
+      return { pageCount: 4, blockCount: 0, replayed: false };
+    },
+  };
 
   console.log("document.parse Handler");
   const parsedTargets: string[] = [];
   const successResult = resultFor(success);
   const handler = handlerModule.createDocumentParseHandler({
     parses,
+    indexer,
     parser: {
       async parse(target: { documentVersionId: string }) {
         parsedTargets.push(target.documentVersionId);
@@ -78,6 +85,7 @@ async function main() {
 
   const transient = handlerModule.createDocumentParseHandler({
     parses,
+    indexer,
     parser: {
       async parse() {
         throw new DocumentServiceError("document_service_unavailable", true);
@@ -121,6 +129,7 @@ async function main() {
 
   const permanent = handlerModule.createDocumentParseHandler({
     parses,
+    indexer,
     parser: {
       async parse() {
         throw new DocumentServiceError("document_request_rejected", false);
@@ -142,10 +151,12 @@ async function main() {
 
   const replayTarget = await parses.start(replay.job.id, replay.job.attempt);
   const replayResult = resultFor(replay);
+  await markIndexed(admin, replay.versionId, replayResult.irSha256);
   await parses.succeed(replay.job.id, replay.job.attempt, replayResult);
   let duplicateCalls = 0;
   const recovery = handlerModule.createDocumentParseHandler({
     parses,
+    indexer,
     parser: {
       async parse() {
         duplicateCalls += 1;
@@ -165,6 +176,13 @@ async function main() {
   await worker.close();
   await admin.end();
   console.log("\n全部通过 ✓");
+}
+
+async function markIndexed(admin: Pool, documentVersionId: string, irSha256: string) {
+  await admin.query(
+    "UPDATE document_versions SET ir_indexed_sha256=$1, ir_indexed_at=$2 WHERE id=$3",
+    [irSha256, eventAt, documentVersionId],
+  );
 }
 
 function resultFor(seed: Awaited<ReturnType<typeof seedParse>>) {

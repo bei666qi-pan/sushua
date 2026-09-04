@@ -297,6 +297,8 @@ export const documentVersions = pgTable("document_versions", {
   parserVersion: text("parser_version"),
   pageCount: integer("page_count"),
   parsedAt: timestamp("parsed_at", { withTimezone: true }),
+  irIndexedSha256: text("ir_indexed_sha256"),
+  irIndexedAt: timestamp("ir_indexed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
 }, (table) => [
   uniqueIndex("document_versions_document_version_unique").on(table.documentId, table.version),
