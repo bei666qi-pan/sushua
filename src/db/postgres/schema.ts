@@ -377,6 +377,7 @@ export const blocks = pgTable("blocks", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
+  uniqueIndex("blocks_workspace_id_unique").on(table.workspaceId, table.id),
   uniqueIndex("blocks_workspace_version_id_unique")
     .on(table.workspaceId, table.documentVersionId, table.id),
   uniqueIndex("blocks_page_reading_order_unique").on(table.pageId, table.readingOrder),
@@ -385,6 +386,35 @@ export const blocks = pgTable("blocks", {
   index("blocks_active_idx")
     .on(table.workspaceId, table.documentVersionId, table.pageId, table.readingOrder)
     .where(sql`deleted_at IS NULL`),
+]);
+
+export const documentRevisions = pgTable("document_revisions", {
+  id: uuid("id").primaryKey(),
+  workspaceId: uuid("workspace_id").notNull(),
+  documentId: uuid("document_id").notNull(),
+  baseDocumentVersionId: uuid("base_document_version_id").notNull(),
+  revisionNumber: integer("revision_number").notNull(),
+  createdByLearnerId: uuid("created_by_learner_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("document_revisions_workspace_revision_unique").on(table.workspaceId, table.documentId, table.revisionNumber),
+  uniqueIndex("document_revisions_workspace_id_unique").on(table.workspaceId, table.id),
+  uniqueIndex("document_revisions_workspace_base_version_id_unique").on(table.workspaceId, table.id, table.baseDocumentVersionId),
+  index("document_revisions_created_by_learner_idx").on(table.createdByLearnerId),
+  index("document_revisions_document_base_version_idx").on(table.workspaceId, table.documentId, table.baseDocumentVersionId),
+]);
+
+export const documentRevisionBlocks = pgTable("document_revision_blocks", {
+  revisionId: uuid("revision_id").notNull(),
+  workspaceId: uuid("workspace_id").notNull(),
+  baseDocumentVersionId: uuid("base_document_version_id").notNull(),
+  sourceBlockId: uuid("source_block_id").notNull(),
+  operation: text("operation").notNull(),
+  patch: jsonb("patch").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.revisionId, table.sourceBlockId] }),
+  index("document_revision_blocks_revision_idx").on(table.workspaceId, table.revisionId, table.baseDocumentVersionId),
+  index("document_revision_blocks_source_idx").on(table.workspaceId, table.baseDocumentVersionId, table.sourceBlockId),
 ]);
 
 export const postgresSchema = {
@@ -404,4 +434,6 @@ export const postgresSchema = {
   sourceAssets,
   pages,
   blocks,
+  documentRevisions,
+  documentRevisionBlocks,
 };
