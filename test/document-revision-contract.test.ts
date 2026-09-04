@@ -26,6 +26,7 @@ async function main() {
       WHERE schemaname = 'public'
         AND indexname IN (
           'document_revisions_created_by_learner_idx',
+          'document_revisions_workspace_document_created_idx',
           'document_revisions_document_base_version_idx',
           'document_revision_blocks_revision_idx',
           'document_revision_blocks_source_idx'
@@ -37,6 +38,7 @@ async function main() {
     "document_revision_blocks_source_idx",
     "document_revisions_created_by_learner_idx",
     "document_revisions_document_base_version_idx",
+    "document_revisions_workspace_document_created_idx",
   ]);
 
   await ensureWebRole(pool);
@@ -44,9 +46,9 @@ async function main() {
   const crossDocumentRevisionId = uuidv7();
   await pool.query(
     `INSERT INTO document_revisions(
-      id, workspace_id, document_id, base_document_version_id, revision_number, created_by_learner_id
-    ) VALUES($1,$2,$3,$4,99,$5)`,
-    [crossDocumentRevisionId, fixture.workspaceId, fixture.documentId, fixture.documentVersionId, fixture.ownerId],
+      id, workspace_id, document_id, base_document_version_id, revision_number, created_by_learner_id, idempotency_key, request_hash
+    ) VALUES($1,$2,$3,$4,99,$5,$6,$7)`,
+    [crossDocumentRevisionId, fixture.workspaceId, fixture.documentId, fixture.documentVersionId, fixture.ownerId, `cross-${crossDocumentRevisionId}`, "0".repeat(64)],
   );
   await assert.rejects(
     () => pool.query(
@@ -70,9 +72,9 @@ async function main() {
   await runtime.withTenant({ learnerId: fixture.ownerId, workspaceId: fixture.workspaceId }, async ({ query }) => {
     await query(
       `INSERT INTO document_revisions(
-        id, workspace_id, document_id, base_document_version_id, revision_number, created_by_learner_id
-      ) VALUES($1,$2,$3,$4,1,$5)`,
-      [revisionId, fixture.workspaceId, fixture.documentId, fixture.documentVersionId, fixture.ownerId],
+        id, workspace_id, document_id, base_document_version_id, revision_number, created_by_learner_id, idempotency_key, request_hash
+      ) VALUES($1,$2,$3,$4,1,$5,$6,$7)`,
+      [revisionId, fixture.workspaceId, fixture.documentId, fixture.documentVersionId, fixture.ownerId, `owner-${revisionId}`, "1".repeat(64)],
     );
     await query(
       `INSERT INTO document_revision_blocks(
@@ -96,9 +98,9 @@ async function main() {
   await assert.rejects(
     () => runtime.withTenant({ learnerId: fixture.viewerId, workspaceId: fixture.workspaceId }, ({ query }) => query(
       `INSERT INTO document_revisions(
-        id, workspace_id, document_id, base_document_version_id, revision_number, created_by_learner_id
-      ) VALUES($1,$2,$3,$4,2,$5)`,
-      [uuidv7(), fixture.workspaceId, fixture.documentId, fixture.documentVersionId, fixture.viewerId],
+        id, workspace_id, document_id, base_document_version_id, revision_number, created_by_learner_id, idempotency_key, request_hash
+      ) VALUES($1,$2,$3,$4,2,$5,$6,$7)`,
+      [uuidv7(), fixture.workspaceId, fixture.documentId, fixture.documentVersionId, fixture.viewerId, "viewer", "2".repeat(64)],
     )),
     (error: unknown) => isPostgresError(error, "42501"),
   );
@@ -116,9 +118,9 @@ async function main() {
   await assert.rejects(
     () => runtime.withTenant({ learnerId: fixture.ownerId, workspaceId: fixture.workspaceId }, ({ query }) => query(
       `INSERT INTO document_revisions(
-        id, workspace_id, document_id, base_document_version_id, revision_number, created_by_learner_id
-      ) VALUES($1,$2,$3,$4,2,$5)`,
-      [uuidv7(), fixture.workspaceId, fixture.documentId, fixture.otherDocumentVersionId, fixture.ownerId],
+        id, workspace_id, document_id, base_document_version_id, revision_number, created_by_learner_id, idempotency_key, request_hash
+      ) VALUES($1,$2,$3,$4,2,$5,$6,$7)`,
+      [uuidv7(), fixture.workspaceId, fixture.documentId, fixture.otherDocumentVersionId, fixture.ownerId, "other-version", "3".repeat(64)],
     )),
     (error: unknown) => isPostgresError(error, "23503"),
   );
@@ -127,9 +129,9 @@ async function main() {
   await assert.rejects(
     () => runtime.withTenant({ learnerId: fixture.ownerId, workspaceId: fixture.workspaceId }, ({ query }) => query(
       `INSERT INTO document_revisions(
-        id, workspace_id, document_id, base_document_version_id, revision_number, created_by_learner_id
-      ) VALUES($1,$2,$3,$4,1,$5)`,
-      [uuidv7(), fixture.workspaceId, fixture.documentId, fixture.documentVersionId, fixture.ownerId],
+        id, workspace_id, document_id, base_document_version_id, revision_number, created_by_learner_id, idempotency_key, request_hash
+      ) VALUES($1,$2,$3,$4,1,$5,$6,$7)`,
+      [uuidv7(), fixture.workspaceId, fixture.documentId, fixture.documentVersionId, fixture.ownerId, "duplicate-version", "4".repeat(64)],
     )),
     (error: unknown) => isPostgresError(error, "23505"),
   );

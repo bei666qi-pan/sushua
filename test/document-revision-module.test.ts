@@ -165,7 +165,7 @@ async function ensureWebRole(admin: Pool) {
     END IF;
   END $$`);
   await admin.query("GRANT USAGE ON SCHEMA public TO sushua_web_test");
-  await admin.query("GRANT SELECT ON workspace_members, documents, document_versions, blocks TO sushua_web_test");
+  await admin.query("GRANT SELECT ON workspace_members, documents, document_versions, blocks, document_revisions TO sushua_web_test");
   await admin.query("GRANT INSERT ON document_revisions, document_revision_blocks TO sushua_web_test");
 }
 
