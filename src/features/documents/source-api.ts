@@ -7,18 +7,22 @@ import {
   type SourceBlock,
   type SourcePage,
 } from "./document-source-module";
+import { createBlockSourceModule, type BlockSourceLocation } from "./block-source-module";
 
 type SourceModule = ReturnType<typeof createDocumentSourceModule>;
+type BlockSourceModule = ReturnType<typeof createBlockSourceModule>;
 type IdentityResolver = { resolve(request: Request): Promise<CurrentIdentity> };
 
 export function createDocumentSourceHandlers(input: {
-  enabled: boolean;
-  identity?: IdentityResolver;
-  sources?: SourceModule;
-}) {
+    enabled: boolean;
+    identity?: IdentityResolver;
+    sources?: SourceModule;
+    source?: BlockSourceModule;
+  }) {
   return {
     LIST_PAGES: (request: Request, documentVersionId: string) => listPages(input, request, documentVersionId),
     LIST_BLOCKS: (request: Request, pageId: string) => listBlocks(input, request, pageId),
+    GET_BLOCK_SOURCE: (request: Request, blockId: string) => getBlockSource(input, request, blockId),
   };
 }
 
@@ -56,9 +60,29 @@ async function listBlocks(input: Parameters<typeof createDocumentSourceHandlers>
   }
 }
 
+async function getBlockSource(input: Parameters<typeof createDocumentSourceHandlers>[0], request: Request, blockId: string): Promise<Response> {
+  if (!input.enabled) return apiError(404, "not_found", "Not found", false);
+  const { identity, source } = blockSourceDependencies(input);
+  const current = await identity.resolve(request);
+  try {
+    const result = await source.getSource(identityContext(current), blockId);
+    return withIdentityCookie(Response.json({
+      data: blockSourceData(result),
+      meta: { request_id: uuidv7(), schema_version: "sushua.api.v1" },
+    }), current);
+  } catch (error) {
+    return withIdentityCookie(sourceError(error), current);
+  }
+}
+
 function dependencies(input: Parameters<typeof createDocumentSourceHandlers>[0]) {
   if (!input.identity || !input.sources) throw new Error("document_source_api_dependencies_unavailable");
   return { identity: input.identity, sources: input.sources };
+}
+
+function blockSourceDependencies(input: Parameters<typeof createDocumentSourceHandlers>[0]) {
+  if (!input.identity || !input.source) throw new Error("block_source_api_dependencies_unavailable");
+  return { identity: input.identity, source: input.source };
 }
 
 function parsePageQuery(url: string, extraKeys: string[] = []): { input: { limit?: number; cursor?: string } } | ApiParseError {
@@ -142,14 +166,41 @@ function blockData(block: SourceBlock) {
   };
 }
 
+function blockSourceData(source: BlockSourceLocation) {
+  return {
+    block: {
+      id: source.block.id,
+      block_type: source.block.blockType,
+      bbox: source.block.bbox,
+      confidence: source.block.confidence,
+      source_hash: source.block.sourceHash,
+    },
+    page: {
+      id: source.page.id,
+      document_version_id: source.page.documentVersionId,
+      page_number: source.page.pageNumber,
+      width: source.page.width,
+      height: source.page.height,
+    },
+    document_version: {
+      id: source.documentVersion.id,
+      document_id: source.documentVersion.documentId,
+    },
+    source_quote: source.sourceQuote,
+    source_url: source.sourceUrl,
+    source_url_expires_in_seconds: source.sourceUrlExpiresInSeconds,
+  };
+}
+
 type ApiParseError = { error: string; message: string };
 
 function sourceError(error: unknown) {
   const code = error instanceof Error ? error.message : "source_read_failed";
-  if (code === "document_version_not_found" || code === "page_not_found") return apiError(404, code, "Source not found", false);
-  if (["invalid_document_version_id", "invalid_page_id", "invalid_source_cursor", "invalid_source_limit", "invalid_block_type", "invalid_min_confidence"].includes(code)) {
+  if (["document_version_not_found", "page_not_found", "block_not_found"].includes(code)) return apiError(404, code, "Source not found", false);
+  if (["invalid_document_version_id", "invalid_page_id", "invalid_block_id", "invalid_source_cursor", "invalid_source_limit", "invalid_block_type", "invalid_min_confidence"].includes(code)) {
     return apiError(400, code, "来源读取参数无效", false);
   }
+  if (code === "source_asset_unavailable") return apiError(503, "source_unavailable", "来源原件暂时不可用", true);
   return apiError(503, "source_read_failed", "来源读取暂时不可用", true);
 }
 
