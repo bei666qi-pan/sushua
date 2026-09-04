@@ -1,6 +1,7 @@
 import { createPostgresRuntime } from "@/db/postgres/runtime";
 import { createDocumentParseHandler } from "@/features/documents/document-parse-handler";
 import { createDocumentParseModule } from "@/features/documents/document-parse";
+import { createDocumentIrIndexingModule } from "@/features/documents/document-ir-indexer";
 import { createDocumentServiceClient, type DocumentParser } from "@/features/documents/document-service-client";
 import { createBullMqJobWorker } from "@/features/jobs/bullmq-job-worker";
 import { createBullMqJobDispatcher } from "@/features/jobs/bullmq-job-dispatcher";
@@ -31,6 +32,7 @@ export function createJobWorkerRuntime(
   const parses = createDocumentParseModule(database);
   const storage = overrides.storage ?? createS3StorageAdapter(config.s3);
   const reader = overrides.reader ?? createS3SourceObjectReader(config.s3);
+  const irIndexer = createDocumentIrIndexingModule(database, { reader });
   const scanner = overrides.scanner ?? createClamAvAdapter(config.clamav);
   const parser = overrides.parser ?? createDocumentServiceClient(config.documentService);
   const dispatcher = createBullMqJobDispatcher({ queueName: config.queueName, redisUrl: config.redisUrl });
@@ -40,7 +42,7 @@ export function createJobWorkerRuntime(
     jobs,
     handlers: {
       "file.scan": createFileScanHandler({ scans, scanner, storage, reader, dispatcher }),
-      "document.parse": createDocumentParseHandler({ parses, parser }),
+      "document.parse": createDocumentParseHandler({ parses, parser, indexer: irIndexer }),
     },
     leaseSeconds: config.leaseSeconds,
     concurrency: config.concurrency,

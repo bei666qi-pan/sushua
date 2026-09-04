@@ -97,6 +97,7 @@ async function main() {
     pageCount: 4,
     irSchemaVersion: "sushua.document-ir.v1" as const,
   };
+  await markIndexed(admin, clean.versionId, result.irSha256);
   assert.deepEqual(await parses.succeed(clean.jobId, 1, result), { status: "ready", replayed: false });
   assert.deepEqual(await versionState(admin, clean.versionId), {
     version_status: "ready",
@@ -160,6 +161,13 @@ async function main() {
   await worker.close();
   await admin.end();
   console.log("\n全部通过 ✓");
+}
+
+async function markIndexed(admin: Pool, documentVersionId: string, irSha256: string) {
+  await admin.query(
+    "UPDATE document_versions SET ir_indexed_sha256=$1, ir_indexed_at=$2 WHERE id=$3",
+    [irSha256, eventAt, documentVersionId],
+  );
 }
 
 async function seedParse(admin: Pool, suffix: string, scanStatus: "clean" | "pending") {

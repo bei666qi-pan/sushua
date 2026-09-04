@@ -49,12 +49,21 @@ async function main() {
   await admin.query(
     "GRANT EXECUTE ON FUNCTION record_document_parse_v1(uuid,text,text,text,text,text,integer,text,timestamptz) TO sushua_worker_test",
   );
+  await admin.query(
+    "GRANT EXECUTE ON FUNCTION index_document_ir_v1(uuid,integer,text,jsonb,timestamptz) TO sushua_worker_test",
+  );
 
   const cleanBytes = Buffer.from("queue to clean asset");
   const eicarBytes = Buffer.from("X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*");
   const clean = await seed(admin, "worker-clean", cleanBytes);
   const infected = await seed(admin, "worker-infected", eicarBytes);
-  const entries = new Map([clean, infected].map((item) => [item.objectKey, item]));
+  const entries = new Map<string, { bytes: Buffer; sha256: string; mimeType: string }>(
+    [clean, infected].map((item) => [item.objectKey, {
+      bytes: item.bytes,
+      sha256: item.sha256,
+      mimeType: "application/pdf",
+    }]),
+  );
   const queueName = `sushua-file-scan-${uuidv7()}`;
   const workerErrors: Error[] = [];
   const runtime = createJobWorkerRuntime({
@@ -92,9 +101,13 @@ async function main() {
     },
     parser: {
       async parse(target) {
+        const irObjectKey = `tenant/${target.workspaceId}/${target.documentId}/${target.documentVersionId}/ir/document-ir.json`;
+        const irBytes = Buffer.from(JSON.stringify(documentIr(target)), "utf8");
+        const irSha256 = createHash("sha256").update(irBytes).digest("hex");
+        entries.set(irObjectKey, { bytes: irBytes, sha256: irSha256, mimeType: "application/json" });
         return {
-          irObjectKey: `tenant/${target.workspaceId}/${target.documentId}/${target.documentVersionId}/ir/document-ir.json`,
-          irSha256: "b".repeat(64),
+          irObjectKey,
+          irSha256,
           parser: "docling",
           parserVersion: "2.123.1",
           pageCount: 2,
@@ -135,6 +148,8 @@ async function main() {
       document_status: "ready",
       parser: "docling",
       page_count: 2,
+      pages: 2,
+      blocks: 2,
     });
     console.log("  ✓ 同一实际 Worker 消费 document.parse，IR 证据落库后 Job 才成功");
 
@@ -248,11 +263,66 @@ async function persisted(admin: Pool, jobId: string, assetId: string) {
 
 async function persistedParse(admin: Pool, versionId: string) {
   const result = await admin.query(
-    `SELECT dv.status AS version_status,d.parse_status AS document_status,dv.parser,dv.page_count
+    `SELECT dv.status AS version_status,d.parse_status AS document_status,dv.parser,dv.page_count,
+      (SELECT count(*)::integer FROM pages WHERE document_version_id=dv.id) AS pages,
+      (SELECT count(*)::integer FROM blocks WHERE document_version_id=dv.id) AS blocks
      FROM document_versions dv JOIN documents d ON d.id=dv.document_id WHERE dv.id=$1`,
     [versionId],
   );
   return result.rows[0];
+}
+
+function documentIr(target: {
+  workspaceId: string;
+  documentId: string;
+  documentVersionId: string;
+  sourceAssetId: string;
+  sourceObjectKey: string;
+  sourceSha256: string;
+  sizeBytes: number;
+  mimeType: string;
+  parseConfig: Record<string, unknown>;
+}) {
+  const sourceHash = (text: string) => createHash("sha256")
+    .update(`2.123.1\n${text}\n0,0,1,1\n${target.sourceSha256}`)
+    .digest("hex");
+  return {
+    schemaVersion: "sushua.document-ir.v1",
+    document: {
+      id: target.documentId,
+      workspaceId: target.workspaceId,
+      documentVersionId: target.documentVersionId,
+      source: {
+        assetId: target.sourceAssetId,
+        objectKey: target.sourceObjectKey,
+        sha256: target.sourceSha256,
+        sizeBytes: target.sizeBytes,
+        mimeType: target.mimeType,
+      },
+      parseConfig: target.parseConfig,
+      parser: { name: "docling", version: "2.123.1" },
+      pages: [
+        {
+          pageNumber: 1,
+          width: 1,
+          height: 1,
+          blocks: [{
+            blockId: "page-one", blockType: "text", text: "第一页", markdown: "第一页",
+            bbox: [0, 0, 1, 1], readingOrder: 0, confidence: 1, sourceHash: sourceHash("第一页"),
+          }],
+        },
+        {
+          pageNumber: 2,
+          width: 1,
+          height: 1,
+          blocks: [{
+            blockId: "page-two", blockType: "text", text: "第二页", markdown: "第二页",
+            bbox: [0, 0, 1, 1], readingOrder: 0, confidence: 1, sourceHash: sourceHash("第二页"),
+          }],
+        },
+      ],
+    },
+  };
 }
 
 function required(name: string) {

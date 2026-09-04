@@ -2,6 +2,7 @@ import type { JobHandler } from "@/features/jobs/bullmq-job-worker";
 import { JobExecutionError } from "@/features/jobs/bullmq-job-worker";
 import { DocumentServiceError, type DocumentParser } from "./document-service-client";
 import type { DocumentParseResult, DocumentParseTarget } from "./document-parse";
+import type { DocumentIrIndexingModule } from "./document-ir-indexer";
 
 type DocumentParses = {
   start(jobId: string, expectedAttempt: number): Promise<DocumentParseTarget>;
@@ -12,6 +13,7 @@ type DocumentParses = {
 export function createDocumentParseHandler(input: {
   parses: DocumentParses;
   parser: DocumentParser;
+  indexer: Pick<DocumentIrIndexingModule, "index">;
 }): JobHandler {
   return async ({ job, signal, reportProgress }) => {
     const target = await input.parses.start(job.id, job.attempt);
@@ -37,6 +39,12 @@ export function createDocumentParseHandler(input: {
     }
     await reportProgress({ phase: "document_parse", percent: 90, messageCode: "parse_result_received" });
     try {
+      await input.indexer.index({ target, expectedAttempt: job.attempt, result, signal });
+    } catch (error) {
+      const indexError = documentIrIndexError(error);
+      return fail(indexError.code, indexError.retryable);
+    }
+    try {
       await input.parses.succeed(job.id, job.attempt, result);
     } catch {
       return fail("parse_persistence_failed", true);
@@ -54,6 +62,16 @@ export function createDocumentParseHandler(input: {
       throw new JobExecutionError(code, { retryable });
     }
   };
+}
+
+function documentIrIndexError(error: unknown): { code: string; retryable: boolean } {
+  if (typeof error === "object" && error !== null
+    && "code" in error && "retryable" in error
+    && typeof error.code === "string" && /^document_ir_[a-z0-9_]+$/.test(error.code)
+    && typeof error.retryable === "boolean") {
+    return { code: error.code, retryable: error.retryable };
+  }
+  return { code: "document_ir_index_failed", retryable: false };
 }
 
 function checkpoint(target: DocumentParseTarget, result: DocumentParseResult) {
